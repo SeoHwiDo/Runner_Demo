@@ -1,0 +1,63 @@
+# Unreal Engine generated directories
+/Binaries/
+/DerivedDataCache/
+/Intermediate/
+/Saved/
+/StagedBuilds/
+/Builds/
+
+# Generated plugin output
+Plugins/*/Binaries/
+Plugins/*/Intermediate/
+Plugins/*/DerivedDataCache/
+Plugins/*/Saved/
+
+# Keep project-owned Build resources, but ignore generated build output
+/Build/**
+!/Build/
+!/Build/**/
+!/Build/**/*.ico
+!/Build/**/PakBlacklist*.txt
+
+# IDE and generated project files
+/.vs/
+/.idea/
+/.vscode/
+*.sln
+*.suo
+*.opensdf
+*.sdf
+*.VC.db
+*.VC.opendb
+*.xcodeproj
+*.xcworkspace
+
+# Local build and compiler artifacts
+*.slo
+*.lo
+*.o
+*.obj
+*.gch
+*.pch
+*.pdb
+*.ilk
+*.exp
+*.log
+
+# Local tools, reports, and scratch data
+/tmp/
+*.tmp
+*.temp
+*.bak
+*.orig
+
+# OS metadata
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Local Unreal/VR editor bindings
+/Config/steamvr_ue_editor_app.json
+/Config/SteamVRBindings/
+/Platforms/HoloLens/Config/HoloLensEngine.ini
+

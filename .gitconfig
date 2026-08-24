@@ -1,0 +1,8 @@
+# This repository config is not loaded automatically by Git.
+# After `git init` or cloning, enable it once with:
+# git config --local include.path ../.gitconfig
+
+[diff "uasset"]
+    command = "C:/Program Files/Epic Games/UE_5.7/Engine/Binaries/Win64/UnrealEditor-Cmd.exe" -diff
+    trustExitCode = false
+
