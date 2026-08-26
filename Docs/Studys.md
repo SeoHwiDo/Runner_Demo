@@ -1,6 +1,6 @@
 # Runner 기술 학습 기록
 
-마지막 갱신: 2026-08-24 KST
+마지막 갱신: 2026-08-25 KST
 
 ## 1. 문서 목적
 
@@ -15,6 +15,7 @@
 ## 2. 목차
 
 1. 2026-08-24: 자동 러너의 좌우 이동과 전진 이동 구조 검토
+2. 2026-08-25: 고정 카메라·충돌 분리와 맵 타일 풀 초기 생성
 
 ---
 
@@ -563,3 +564,428 @@ BP_TrackChunk
 ```
 
 이 결론은 기술 검토 결과이며 아직 Blueprint 구현과 PIE 검증을 완료하지 않았다. 실제 프로젝트 결정으로 확정할 때는 `CurrentWork.md`의 결정 로그와 M1-01 완료 조건을 갱신하고 Trello를 동기화해야 한다.
+
+---
+
+# 2026-08-25 고정 카메라·충돌 분리와 맵 타일 풀 초기 생성
+
+## 1. 최종 구현 상태
+
+오늘 작업에서는 플레이어가 전진하지 않고 월드의 맵 타일이 이동하는 러너 구조를 구체화했다. 여러 범용화 방식을 검토했지만 MVP에서는 고정된 플레이어 이동 영역과 재사용되는 고정 크기 맵 타일을 분리하는 방식으로 정리했다.
+
+| 영역 | 최종 상태 | 주요 에셋 |
+|---|---|---|
+| 플레이어 | 고정 발판 위에서 좌우로만 이동 | `/Game/Characters/BP_RunnerPlayer` |
+| 카메라 | 플레이어에 부착하지 않고 맵을 바라보는 별도 카메라로 분리 | `/Game/Cameras/BP_InGameCamera` |
+| 이동 제한 | 플레이어 전용 고정 바닥·좌우 감지 Collision 사용 | 플레이어 이동 영역 관련 Blueprint |
+| 맵 타일 | 고정 크기의 기본 타일 액터와 머티리얼 사용 | `/Game/Levels/BP_BaseTile` |
+| 타일 관리 | 시작 시 `PoolSize`만큼 타일을 생성하고 순차 배치한 뒤 참조 보관 | `/Game/Managers/TileManager` |
+| 레벨 연결 | GameMode, 카메라, 플레이어와 TileManager 배치 반영 | `/Game/Ingame` |
+
+`NEXT-01` 전체가 완료된 것은 아니다. 초기 생성과 순차 배치까지만 구현했으며, 타일의 `-X` 이동, 맵 범위 이탈 감지, 재배치와 장시간 PIE 검증은 다음 단계다.
+
+## 2. 카메라와 플레이어 이동 책임 분리
+
+### 2.1 고민
+
+플레이어를 따라가는 카메라를 그대로 사용하면 플레이어가 고정돼 있어야 하는 월드 스크롤 연출과 카메라 책임이 섞인다. PlayerController를 추가했을 때 이동 로직까지 Controller로 옮겨야 하는지도 확인할 필요가 있었다.
+
+### 2.2 학습
+
+PlayerController를 추가하는 것만으로 Pawn의 이동 방식이 바뀌지는 않는다. Controller는 입력 매핑과 ViewTarget을 관리하고, 실제 좌우 이동은 기존처럼 `BP_RunnerPlayer`의 `AddMovementInput`에 둘 수 있다.
+
+카메라 전환의 최소 흐름은 다음과 같다.
+
+```text
+BP_InGameCamera BeginPlay
+    -> Get Player Controller
+    -> Set View Target with Blend
+        New View Target = Self
+        Blend Time = 0
+```
+
+### 2.3 해결
+
+카메라를 플레이어 컴포넌트에서 분리해 독립 Actor로 구성하고, PlayerController가 해당 카메라를 ViewTarget으로 사용하도록 했다. 그 결과 카메라의 월드 위치는 고정하면서 플레이어 좌우 이동 로직을 그대로 유지할 수 있었다.
+
+## 3. 플레이어 이동 Collision과 시각적 타일 분리
+
+### 3.1 고민
+
+초기에는 이동하는 타일의 바닥 Collision이 플레이어를 지지하고, 좌우 Collision이 이동을 제한하는 구조를 검토했다. 그러나 타일 전체가 계속 `-X`로 이동하면 CharacterMovement가 바닥을 이동 발판으로 해석하거나 플레이어 위치를 보정할 수 있다.
+
+### 3.2 학습
+
+시각적 월드 스크롤과 플레이어의 물리적 지지는 같은 Actor가 담당할 필요가 없다.
+
+```text
+고정 이동 Collision
+    플레이어 지지와 좌우 이동 제한 담당
+
+이동 맵 타일
+    시각적 도로와 타일별 콘텐츠 담당
+    플레이어 지지 Collision과 분리
+```
+
+이렇게 분리하면 맵 타일을 `Sweep = false`로 이동하거나 순간 재배치해도 플레이어의 CharacterMovement 바닥 판정에는 영향을 주지 않는다.
+
+### 3.3 해결
+
+플레이어는 별도의 고정 이동용 Collision 위에서 움직이고, 맵 타일은 플레이어와 물리적으로 상호작용하지 않는 시각적 Actor로 유지했다. 타일에 필요한 플레이어 감지는 별도의 Overlap Collision으로만 처리한다.
+
+## 4. Collision 채널에서 Block과 Overlap의 역할
+
+### 4.1 고민
+
+플레이어 전용 Object Channel을 추가하고, 바닥과 좌우 Collision이 Player만 Block하도록 만들면 입력 차단 불린을 없앨 수 있는지 검토했다.
+
+### 4.2 학습
+
+하나의 Collision Response는 동일한 Object Channel에 대해 동시에 Block과 Overlap이 될 수 없다.
+
+| Collision 역할 | Collision Enabled | Player 응답 |
+|---|---|---|
+| 물리적 바닥 또는 벽 | Query and Physics | Block |
+| 감지 센서 | Query Only | Overlap |
+
+Player Object Type은 보통 캐릭터의 Capsule에 적용하고 Skeletal Mesh는 충돌 책임에서 제외하는 편이 명확하다. 감지 Collision에는 `Generate Overlap Events`가 필요하다.
+
+### 4.3 해결
+
+플레이어를 물리적으로 막는 고정 이동 영역과 상태를 감지하는 타일 Trigger를 분리했다. 타일 Trigger의 BeginOverlap과 EndOverlap은 `PlayerEnter` 상태만 관리하며 플레이어 지지나 이동 차단 Collision과 섞지 않는다.
+
+## 5. `Accessed None`과 Actor 참조 수명
+
+### 5.1 발생한 문제
+
+다음 런타임 오류가 반복됐다.
+
+```text
+Accessed None trying to read property PlayerRef in BP_TileManager_C
+Node: Set bBlockRight
+Blueprint: BP_BaseTileCollision
+```
+
+### 5.2 원인
+
+오류가 발생한 노드보다 중요한 정보는 `PlayerRef`가 `None`이었다는 사실이다. Overlap 이벤트가 정상 실행돼도, 별도로 캐시한 Player 참조가 생성 순서상 아직 지정되지 않았거나 잘못된 소유 Blueprint의 변수를 읽으면 접근 오류가 발생한다.
+
+### 5.3 해결 원칙
+
+Overlap 이벤트에서 이미 전달되는 `Other Actor`를 실제 이벤트의 근거로 사용한다.
+
+```text
+On Component Begin Overlap
+    Other Actor
+    -> Cast To BP_RunnerPlayer
+    -> Cast 결과로 필요한 상태 변경
+```
+
+캐시 참조가 반드시 필요하다면 값을 읽기 전에 `Is Valid`를 사용하고, 누가 언제 설정하고 해제하는지 수명 규칙을 명확히 해야 한다. 이번 구조처럼 이벤트가 대상 Actor를 직접 전달하는 경우에는 불필요한 `PlayerRef`를 제거하는 편이 안전하다.
+
+## 6. 단일 Boolean과 Overlap 순서 문제
+
+인접한 두 타일의 Trigger가 경계에서 동시에 플레이어와 겹칠 수 있다. 이때 다음 순서가 발생할 수 있다.
+
+```text
+다음 타일 BeginOverlap -> PlayerEnter = true
+이전 타일 EndOverlap   -> PlayerEnter = false
+```
+
+`PlayerEnter`가 각 타일 내부 상태라면 단일 Boolean으로 충분하다. 여러 타일의 감지 결과를 플레이어 또는 Manager의 전역 상태 하나로 합친다면 Boolean 대신 Overlap 개수를 사용해야 한다.
+
+```text
+BeginOverlap
+    TileOverlapCount += 1
+
+EndOverlap
+    TileOverlapCount = Max(TileOverlapCount - 1, 0)
+
+PlayerEnter
+    TileOverlapCount > 0
+```
+
+핵심 학습은 이벤트의 최종 발생 순서에 의존하는 Boolean은 경계에서 잘못된 상태를 만들 수 있다는 점이다.
+
+## 7. 공용 타일 크기와 동적 스케일링 검토
+
+### 7.1 검토한 방식
+
+`BP_TileCommon`에 공용 크기 변수를 두고, Static Mesh와 Box Collision의 원본 Bounds를 측정해 목표 크기에 맞게 Scale과 위치를 계산하는 방식을 검토했다.
+
+```text
+MeshScale = TargetSize / OriginalMeshSize
+CollisionScale = TargetSize / OriginalCollisionSize
+```
+
+Collision의 크기뿐 아니라 중심 위치도 함께 계산해야 메시와 바닥, 좌우 벽이 정확히 맞는다.
+
+### 7.2 폐기한 이유
+
+현재 MVP의 타일은 고정된 형태이며 런타임에 서로 다른 원본 메시를 동일 규격으로 자동 보정할 필요가 없다. 범용 크기 상속, Construction Script 스케일링과 Collision 위치 보정까지 도입하면 현재 요구보다 복잡도가 커진다.
+
+### 7.3 학습과 결론
+
+범용화는 실제 변형 요구가 생겼을 때 도입해야 한다. 오늘은 동적 공용 크기 구조를 폐기하고 고정 크기 `BP_BaseTile`을 기준으로 삼았다. 이 결정으로 초기 생성 간격과 향후 재배치 조건을 단순한 `TileLength` 하나로 표현할 수 있게 됐다.
+
+## 8. 초기 타일 풀 생성과 순차 배치
+
+### 8.1 구현 흐름
+
+`TileManager`의 BeginPlay에서 `PoolSize`만큼 타일을 생성한다.
+
+```text
+Event BeginPlay
+    -> ForLoop (0 ~ PoolSize - 1)
+        -> SpawnActor BP_BaseTile
+            SpawnTransform.Location = SpawnPoint
+        -> Add 생성 Actor to TilePool
+        -> SpawnPoint 갱신
+```
+
+다음 타일의 배치점은 현재 배치점에 진행 방향과 타일 길이를 더해 계산한다.
+
+```text
+NextSpawnPoint =
+    CurrentSpawnPoint
+    + TileForwardVector * TileLength
+```
+
+모든 타일이 동일한 축 정렬 상태라면 월드 `+X * TileLength`를 더해도 되지만, 타일 회전을 허용할 경우 `GetActorForwardVector` 또는 타일의 `NextTilePoint`를 사용하는 방식이 안전하다.
+
+### 8.2 학습
+
+풀링의 첫 단계는 Spawn과 Destroy를 반복하지 않도록 필요한 Actor를 한 번 생성하고 참조를 보관하는 것이다. 현재 `TilePool` 배열은 이후 이동·회수·초기화 대상의 소유권을 Manager에 모으는 역할을 한다.
+
+초기 생성만 구현했다고 풀링 전체가 끝난 것은 아니다. 반환 시 상태 초기화, 재배치, 재시작 시 배열 초기화와 Actor 수 유지 검증까지 완료해야 실제 풀링으로 볼 수 있다.
+
+## 9. 맵 범위 Collision을 이용한 재배치 설계
+
+이 절은 다음 구현을 위한 확정 설계이며 아직 Blueprint와 PIE 검증을 완료하지 않았다.
+
+### 9.1 전체 맵 범위 방식
+
+맵의 유효 영역과 정확히 같은 Query Only Box Collision을 두고, 타일의 전용 Bounds Collision이 완전히 빠져나갈 때 `EndOverlap`으로 회수한다.
+
+```text
+MapBounds OnComponentEndOverlap
+    -> Other Actor Cast To BP_BaseTile
+    -> 빠져나간 타일을 앞쪽 SpawnPoint로 이동
+```
+
+`EndOverlap`은 시각적 Mesh가 아니라 실제로 겹치던 Collision 형상이 완전히 분리됐을 때 발생한다. 따라서 타일의 재배치 감지용 Bounds가 시각적 타일 길이와 일치해야 한다.
+
+### 9.2 고정 SpawnPoint가 성립하는 조건
+
+다음 조건이 모두 맞으면 고정된 앞쪽 SpawnPoint로 재배치해도 타일이 순환한다.
+
+1. 맵 범위 Collision의 진행축 길이가 타일 한 개 길이와 정확히 같다.
+2. 두 타일이 같은 길이이고 처음부터 빈틈없이 붙어 있다.
+3. 모든 타일이 같은 속도로 같은 축을 따라 이동한다.
+4. 첫 타일이 완전히 나갈 때 다음 타일이 정확히 맵 범위를 채운다.
+5. 재배치 지점은 맵 범위의 앞쪽 끝에 고정돼 있다.
+
+### 9.3 프레임 단위 초과 이동
+
+수학적으로 경계가 일치하더라도 실제 게임은 프레임 단위로 위치를 갱신한다. 한 프레임에 이동하는 거리가 `ScrollSpeed * DeltaSeconds`이므로 `EndOverlap`이 발생했을 때 타일이 경계를 몇 유닛 지나쳤을 수 있다. 고정 SpawnPoint에 정확히 Snap하면 이 초과 거리만큼 작은 틈이나 겹침이 생길 수 있다.
+
+가장 안전한 재배치 기준은 현재 맨 앞 타일의 실제 위치다.
+
+```text
+RecycleLocation =
+    CurrentFrontTileLocation
+    + FrontTileForwardVector * TileLength
+```
+
+또는 각 타일 앞에 `NextTilePoint` Scene Component를 두고 그 World Transform을 사용한다. 고정 SpawnPoint 방식은 PIE에서 틈이 없다는 것이 확인될 때 유지하고, 틈이 보이면 현재 앞 타일 기준 방식으로 전환한다.
+
+## 10. Tick과 타일 이동 책임
+
+타일 이동은 매 프레임 위치 갱신이 필요한 연속 동작이므로 Tick 사용이 허용되는 영역이다. 다만 Manager가 Tick마다 `TilePool` 전체를 순회하면 타일 수가 늘어날수록 비용이 증가한다.
+
+현재 후보는 각 타일이 동일한 `ScrollSpeed`로 자신을 이동하고 Manager는 생성·회수·배치만 책임지는 방식이다. 다른 후보는 작은 고정 풀을 Manager가 한 번에 이동시켜 Tick 순서를 통제하는 방식이다. 최종 선택 시 다음을 함께 확인해야 한다.
+
+- 타일별 Tick 순서에 따라 경계 틈이 달라지는가
+- 모든 타일에 동일한 `ScrollSpeed`와 Pause 상태가 적용되는가
+- Tick 안에서 `Get All Actors Of Class`나 반복 Cast를 사용하지 않는가
+- 풀 크기가 커졌을 때 전체 배열 순회 비용이 문제가 되는가
+
+## 11. Cascade AnimTrail 자동 변환의 한계
+
+오늘 발생한 파티클 변환 오류는 AnimNotify 시간 설정 문제가 아니라 Cascade 자동 변환기가 AnimTrail Emitter를 지원하지 않는 문제였다.
+
+```text
+CascadeParticleSizeConverter does not support emitters with renderer type
+ParticleModuleTypeDataAnimTrail_0
+```
+
+즉 `ParticleModuleSize`를 변환하는 과정에서 Emitter의 Renderer Type이 AnimTrail이어서 변환이 중단됐다. 해결 선택지는 다음과 같다.
+
+1. 원본 Cascade Trail을 그대로 사용한다.
+2. Niagara Ribbon 기반 Sword Trail을 새로 구성한다.
+3. AnimNotify State는 Trail의 시작·종료 신호만 담당하고 실제 이펙트 구현을 교체한다.
+
+자동 변환 결과가 생성됐다는 사실만으로 재생 가능하다고 판단하면 안 된다. 변환 로그에서 미지원 모듈과 Renderer Type을 확인하고, 변환이 중단된 Emitter는 수동 재구성해야 한다.
+
+## 12. 검증 결과와 남은 과제
+
+### 12.1 확인한 결과
+
+UE 5.7.4 `CompileAllBlueprints` 결과는 다음과 같다.
+
+```text
+Blueprint 오류: 0
+Blueprint 경고: 0
+로드 실패: 0
+```
+
+명령 전체 종료 코드는 샌드박스에서 Zen과 기본 DDC 경로를 쓸 수 없어 1이었다. `-DDC-ForceMemoryCache`를 사용해 Blueprint 컴파일 자체는 완료했으므로 Blueprint 실패와 도구 실행 환경의 캐시 오류를 구분해야 한다.
+
+### 12.2 아직 확인하지 않은 항목
+
+- PIE에서 초기 타일 간격 확인
+- 타일 전체의 `-X` 지속 이동
+- 맵 범위 `EndOverlap` 회수
+- 재배치 순간의 틈과 중첩
+- 장시간 실행 시 타일 Actor 수 유지
+- 재시작과 레벨 재진입 시 Pool과 SpawnPoint 초기화
+
+## 13. 오늘의 핵심 결론
+
+1. 플레이어 지지 Collision과 이동하는 시각적 타일을 분리하면 CharacterMovement와 월드 스크롤의 충돌을 줄일 수 있다.
+2. Overlap 대상이 이벤트 핀으로 전달될 때는 수명이 불명확한 전역 `PlayerRef`보다 `Other Actor`를 사용하는 편이 안전하다.
+3. 물리적 제한은 Block, 상태 감지는 Overlap으로 역할을 분리해야 한다.
+4. 고정 규격만 필요한 단계에서는 공용 동적 스케일링보다 고정 `TileLength`가 구현과 검증에 유리하다.
+5. 풀링은 초기 생성뿐 아니라 회수, 상태 초기화, 재배치와 Actor 수 검증까지 포함한다.
+6. Collision 경계가 수학적으로 맞아도 프레임 초과 이동 때문에 틈이 생길 수 있으므로 실제 앞 타일 Transform을 기준으로 재배치하는 대안을 준비해야 한다.
+7. Blueprint 컴파일 성공 여부와 DDC/Zen 같은 실행 환경 오류는 별도로 판정해야 한다.
+
+## 14. Enemy 오브젝트 풀의 생명주기와 책임 분리
+
+### 14.1 풀 소유권과 Actor 내부 상태는 다른 책임이다
+
+처음에는 `ActivateFromPool`과 `DeactivateFromPool`이 Actor를 FIFO 배열에서 꺼내고 다시 넣는 작업까지 담당하는 구조를 생각할 수 있다. 하지만 Actor가 자신의 컨테이너까지 수정하면 중복 반환, 잘못된 MonsterID 대기열 삽입, 활성 Actor 강제 회수 같은 오류를 한곳에서 통제하기 어렵다.
+
+따라서 책임을 다음과 같이 분리했다.
+
+```text
+BP_EnemySpawnManager
+    - MonsterID별 FIFO 대기열 소유
+    - AcquireEnemyByID / ReturnEnemy
+    - 중복 반환과 풀 고갈 검사
+
+BP_EnemyBase
+    - ActivateFromPool
+    - DeactivateFromPool
+    - 자신의 HP, Collision, Timer, Tick, 표시 상태 초기화
+```
+
+Manager는 “어떤 Actor를 빌리고 돌려받는가”를 결정하고, Enemy는 “빌려진 뒤 어떤 상태가 되어야 하는가”만 처리한다. 이 경계를 지키면 반환 경로가 늘어나도 FIFO 컨테이너 변경은 `ReturnEnemy` 한곳에서만 일어난다.
+
+### 14.2 사망과 풀 반환은 같은 사건이 아니다
+
+이번 게임에서는 Enemy가 사망한 뒤 보상 상자로 남아 플레이어의 Overlap을 기다린다. 따라서 사망 시 즉시 `DeactivateFromPool`을 호출하면 보상 상자도 함께 사라진다.
+
+상태 흐름은 다음과 같이 분리해야 한다.
+
+```text
+InPool
+    -> AcquireEnemyByID
+ActiveEnemy
+    -> Death
+RewardBox
+    -> Player Overlap 또는 Tile 회수
+InPool
+```
+
+`bIsAlive`와 `bInPool` 두 Boolean만으로 표현하면 `bIsAlive=false`, `bInPool=false`가 사망 연출 중인지 RewardBox인지 구분되지 않는다. `E_EnemyPoolState`의 `InPool`, `ActiveEnemy`, `RewardBox`를 단일 상태 기준으로 사용하고 Boolean은 필요한 경우 파생 값이나 호환 값으로만 유지하는 편이 안전하다.
+
+보상 종류·수량·UI·저장은 아직 결정하지 않았으므로 풀링 구현에는 보상 지급 요청 Event 또는 Interface 호출 지점만 두고 실제 내용은 별도 이슈로 분리했다.
+
+### 14.3 활성화는 Collision을 마지막에, 비활성화는 처음에 처리한다
+
+풀에서 꺼낸 Actor는 Transform과 HP를 초기화하기 전에 Collision이 켜지면 이전 위치나 잘못된 상태에서 Overlap을 발생시킬 수 있다. 반대로 반환 중인 Actor는 다른 정리보다 Collision을 먼저 꺼야 중복 피격과 보상 중복 획득을 막을 수 있다.
+
+```text
+ActivateFromPool
+    Collision Off 유지
+    -> Timer와 런타임 참조 초기화
+    -> HP와 상태 초기화
+    -> RewardBox 표시 해제
+    -> Spawn Transform 적용
+    -> Enemy 표시와 Tick 활성화
+    -> Enemy Collision On
+
+DeactivateFromPool
+    Enemy/Reward Collision Off
+    -> Timer, AI, 이동, VFX 정지
+    -> 표시 해제
+    -> OwningTile, Target, 런타임 상태 초기화
+    -> Tick Off
+```
+
+`PoolOwner`, `MonsterID`처럼 Actor의 풀 정체성을 나타내는 값은 반환 때 지우지 않는다. `OwningTile`, Target, 상태 이상처럼 한 번의 대여에서만 유효한 값만 초기화한다.
+
+### 14.4 Blueprint FIFO는 Array의 앞 제거와 뒤 추가로 표현한다
+
+먼저 반환된 Actor를 먼저 재사용하려면 각 `MonsterID`마다 별도의 대기열이 필요하다.
+
+```text
+Acquire: AvailableEnemies[0] 사용 후 Remove Index 0
+Return:  AvailableEnemies 끝에 Add
+```
+
+Blueprint의 `Set`은 중복 검사에는 적합하지만 순서가 없으므로 FIFO 대기열로 사용할 수 없다. `ActiveEnemies Set`은 활성 여부와 중복 반환 검사에 사용하고, 실제 대여 순서는 `AvailableEnemies Array`가 담당한다.
+
+또한 Blueprint Map에서 구조체 값을 가져오면 복사본을 수정하게 되는 경우가 있으므로 다음 구조를 선택했다.
+
+```text
+PoolIndexByMonsterID : Map<Name, Integer>  // 조회 전용
+MonsterPools         : ST_EnemyPool Array // 실제 변경 대상
+```
+
+Map에서 Pool Index를 찾고 Array의 구조체를 수정한 뒤 `Set Array Elem`으로 다시 기록하면 중첩 배열 변경이 원본에 반영되지 않는 문제를 피할 수 있다.
+
+### 14.5 타일 회수는 소유권으로 처리한다
+
+MapManager가 화면 밖 Tile을 맨 앞으로 옮길 때 Enemy가 살아 있거나 RewardBox 상태일 수 있다. 이때 월드의 모든 Enemy를 검색하면 타일마다 `Get All Actors Of Class`와 전체 배열 탐색이 반복된다.
+
+그래서 Enemy에는 `OwningTile`, Tile에는 `TileEnemies` Array를 두고 양방향으로 소유권을 기록한다.
+
+```text
+MapManager: Tile 이탈 감지
+    -> EnemySpawnManager.ReturnEnemiesOwnedByTile(Tile)
+    -> TileEnemies 초기화
+    -> Tile을 맨 앞으로 이동
+    -> EnemySpawnManager.PopulateTile(Tile, Stage/Phase/Seed)
+```
+
+반환 시 `Enemy.OwningTile == 요청 Tile`인지 다시 검사하면, 재사용된 Enemy를 이전 Tile의 오래된 참조가 잘못 반환하는 문제도 막을 수 있다.
+
+### 14.6 원본 데이터와 런타임 상태를 분리한다
+
+`ST_ActorBaseStatus`와 `ST_EnemyDefinition`은 카탈로그의 원본 설정이다. 전투 중 `CurrentHP`나 생존 상태를 이 원본 구조체에 직접 기록하면 다음 대여 또는 같은 정의를 사용하는 다른 Actor까지 오염될 수 있다.
+
+따라서 카탈로그 값은 읽기 전용 원본으로 두고, `ActivateFromPool`에서 최대 체력과 필요한 값을 런타임 변수로 복사한다. 매 대여 시 같은 초기화 함수를 거치게 하면 새로 Spawn한 Actor와 재사용 Actor의 시작 상태 차이도 줄어든다.
+
+### 14.7 Unreal 바이너리 에셋은 직접 참조와 재귀 의존성을 함께 커밋해야 한다
+
+`BP_Enemy_Skel`만 커밋해도 로컬에서는 이미 설치된 예제 에셋 때문에 정상으로 보일 수 있다. 하지만 새 Checkout에서는 Skeletal Mesh, Skeleton, Physics Asset, Animation, Material Instance, Material Function과 Texture가 빠져 로드 오류가 발생한다.
+
+이번에는 `BP_Enemy_Skel`의 직접 참조를 확인하고 `Skeleton_Knight_01`과 공통 `Skeleton` 재질 폴더를 별도 LFS 커밋으로 분리했다. Enemy 발판 Material이 참조하는 Fantastic Village의 돌 Texture도 전체 팩 대신 직접 의존하는 2개만 포함했다.
+
+기능 에셋과 대용량 예제 원본을 별도 커밋으로 나누면 다음 이점이 있다.
+
+- 기능 변경과 외부 에셋 추가의 목적을 Git 기록에서 구분할 수 있다.
+- 에셋 라이선스 또는 용량 문제가 생겼을 때 예제 커밋만 독립적으로 검토할 수 있다.
+- LFS 업로드 실패 시 어느 커밋의 대용량 객체가 원인인지 찾기 쉽다.
+
+### 14.8 아직 검증이 필요한 항목
+
+- `ActivateFromPool → DeactivateFromPool → ActivateFromPool` 재사용 PIE
+- 반환 직후 Enemy와 Reward Collision이 모두 꺼지는지 확인
+- 이전 HP, Target, Timer, RewardBox 표시가 재대여 Actor에 남지 않는지 확인
+- RewardBox Player Overlap의 중복 지급·중복 반환 방지
+- Tile 회수 시 ActiveEnemy와 RewardBox가 모두 반환되는지 확인
+- `BPDA_EnemyCatalogBase.EnemyDefinitions`의 `Unknown structure` 참조 복구
+- `BP_Enemy_Skel`의 `EquipSocket_L`과 Skeletal Mesh 설정 경고 제거
