@@ -4,7 +4,7 @@
 
 목표 완료: **2026-09-03 18:00 KST**
 
-현재 상태: **NEXT-01 맵 풀링 완료, NEXT-03B Enemy 풀 활성화·비활성화 생명주기 우선 구현**
+현재 상태: **NEXT-01 맵 풀링 완료, NEXT-03B Enemy 풀 컨테이너 설계 완료·Actor 생명주기 우선 구현**
 
 현재 작업: **NEXT-03B 1단계 — `BP_EnemyBase.ActivateFromPool` / `DeactivateFromPool`**
 
@@ -72,13 +72,17 @@
   - 공통 기반은 체력·공격력·생존 여부·이름을 담는 `ST_ActorBaseStatus`, 등급을 구분하는 `E_EnemyType`, Collision과 발판 Static Mesh를 가진 `BP_EnemyBase`로 구성한다.
   - 몬스터 등급은 `E_EnemyType`의 `Normal`, `Elite`, `Boss`로 구분한다. 별도 Grade Enum은 만들지 않는다.
   - Skeleton, Orc, Dragon처럼 외형·애니메이션·행동이 다른 몬스터는 `BP_EnemyBase`의 자식 Blueprint로 만들고 공통 체력·사망·풀 반환 로직은 부모에만 둔다.
-  - `ST_EnemyDefinition`은 `MonsterID`, `MonsterType`, `MonsterClass`, `Status`, `PoolSize`, `SpawnWeight`, `Stage`를 가진다.
+  - `ST_EnemyDefinition`은 `MonsterID`, `MonsterType`, `MonsterClass`, `BaseStatus`, `InitPoolSize`, `SpawnWeight`, `MinStage`, `EnemyAttackType`을 가진다.
   - `BPDA_EnemyCatalogBase`의 `ST_EnemyDefinition` 배열과 `DA_EnemyCatalog` 인스턴스를 몬스터 에셋과 밸런스의 단일 원천으로 사용한다.
   - 표시용 이름과 조회 키를 분리한다. `ST_ActorBaseStatus`의 이름은 표시용으로 사용하고, 풀과 Map 조회에는 고유 `MonsterID` Name을 사용한다.
   - `BP_EnemyBase`는 원본 상태와 매 대여 때 복사·초기화하는 런타임 상태를 분리하며 카탈로그 원본 상태를 변경하지 않는다.
   - 풀은 `MonsterType → MonsterID → FIFO 대기열` 계층으로 분리한다. 서로 다른 ID의 몬스터는 같은 등급이어도 별도 대기열과 풀 크기를 가진다.
-  - 설계 데이터는 하나의 카탈로그 Array로 편집하고, Manager 초기화 시 `NormalMonsterIDs`, `EliteMonsterIDs`, `BossMonsterIDs` Array를 구성한다.
-  - 런타임 풀은 `PoolIndexByMonsterID : Map<Name, Integer>`와 `MonsterPools : ST_MonsterPool Array`를 조합한다. Blueprint Map에서 구조체를 꺼내 수정할 때 복사본이 되는 문제를 피한다.
+  - 설계 데이터는 하나의 카탈로그 Array로 편집한다. `E_EnemyType`의 `Normal`, `Elite`, `Boss`는 별도 Rank가 아니라 몬스터 등급이자 Type이다.
+  - 런타임 풀은 `EnemyPools : ST_EnemyPool Array`, `PoolIndexByEnemyID : Map<Name, Integer>`, `PoolIndicesByType : Map<E_EnemyType, ST_EnemyPoolIndexList>`를 조합한다.
+  - `ST_EnemyPool`은 `EnemyID`, `EnemyType`, `EnemyClass`, `AvailableEnemies`, `PoolSize`를 가진다. Skeleton, Orc, Wyvern, Dragon, Phoenix처럼 서로 다른 ID는 각각 독립된 FIFO 배열을 사용한다.
+  - `ST_EnemyPoolIndexList`는 `PoolIndices : Integer Array`를 가진다. `PoolIndicesByType`은 `Normal → 소형 일반 몬스터 풀`, `Elite → 대형·강화 몬스터 풀`, `Boss → 보스 몬스터 풀`의 후보 인덱스를 조회하는 파생 데이터다.
+  - `EnemyPools`가 실제 Actor와 FIFO 배열을 소유하는 원본이다. 두 Map은 `EnemyPools.Add`가 반환한 실제 인덱스를 초기화 시 기록하는 조회 전용 파생 데이터이며, Map을 기준으로 `EnemyPools`를 만들지 않는다.
+  - Blueprint Map에서 구조체를 꺼내면 복사본이므로 `PoolIndicesByType`의 인덱스 배열을 수정한 뒤 같은 Type 키로 구조체를 다시 `Add`한다. `EnemyPools` 요소를 수정한 뒤에는 같은 인덱스에 `Set Array Elem`으로 저장한다.
   - `ActiveMonsters`는 Actor Reference Set으로 중복 활성화·반환을 확인한다. 순서가 없는 Set은 FIFO 대기열이나 무작위 후보 목록으로 사용하지 않는다.
   - BeginPlay에서 등급·이름별 설정 `PoolSize`만큼 한 번만 생성하고 각 비활성 FIFO 대기열에 넣는다.
   - 대여 시 `AvailableMonsters[0]`을 꺼내고, 반환 시 배열 끝에 추가한다.
@@ -101,6 +105,40 @@
   - 일반 몬스터의 좌우 위치는 Tile을 2분할한 `LeftSectionCenter` 또는 `RightSectionCenter` 중 하나를 사용한다. 전후 위치는 진입 직후 조우를 막는 `EntrySafetyMargin`과 끝 여백 사이에서 무작위로 정한다.
   - 정예·보스 몬스터는 Tile의 가장 끝 중앙 `EndCenterSpawnPoint`에 배치한다.
   - Stage별 Tile 수, Phase 구간, 일반 몬스터 수, 안전 여백, 최소 전후 간격, 등급·이름별 풀 크기는 Data Asset 또는 Data Table을 단일 원천으로 사용한다.
+
+### NEXT-03B 2단계 상세 계획 — `InitializeEnemyPools`
+
+- 선행 조건:
+  - `BP_EnemyBase.InitializeEnemy`, `ActivateFromPool`, `DeactivateFromPool`의 상태 초기화가 완료돼야 한다.
+  - `ST_EnemyDefinition → BPDA_EnemyCatalogBase → DA_EnemyCatalog` 순서로 구조체 참조를 복구하고 컴파일해야 한다.
+- Manager 변수:
+  - `EnemyCatalogClass : BPDA_EnemyCatalogBase Class Reference`, 기본값은 `DA_EnemyCatalog`로 지정한다.
+  - `EnemyPools : ST_EnemyPool Array`는 실제 종별 FIFO와 Actor 참조를 소유한다.
+  - `PoolIndexByEnemyID : Map<Name, Integer>`는 `MonsterID → EnemyPools Index`를 조회한다.
+  - `PoolIndicesByType : Map<E_EnemyType, ST_EnemyPoolIndexList>`는 등급별 후보 Pool Index를 조회한다.
+  - `bPoolsInitialized : Boolean`으로 BeginPlay 중복 초기화를 차단한다.
+- 초기화 순서:
+  1. `bPoolsInitialized`가 `true`면 즉시 반환해 중복 Actor 생성을 막는다.
+  2. `EnemyPools`, `PoolIndexByEnemyID`, `PoolIndicesByType`를 비우고 `DA_EnemyCatalog`의 Class Defaults에서 `EnemyDefinitions`를 읽는다.
+  3. 각 정의에서 `MonsterID != None`, `MonsterClass` 설정, `InitPoolSize > 0`, ID 비중복을 검사한다. 잘못된 정의는 경고 후 건너뛴다.
+  4. `MonsterClass` Soft Class Reference를 `Load Class Asset Blocking`으로 한 번 로드한다. 초기화 루프 안에서 비동기 로드를 사용하지 않는다.
+  5. 로컬 `NewAvailableEnemies : BP_EnemyBase Array`를 비우고 `InitPoolSize`만큼 `Always Spawn, Ignore Collisions`로 Actor를 생성한다.
+  6. 생성된 Actor에 정의와 `PoolOwner`를 전달해 `InitializeEnemy`를 호출하고, 이어서 `DeactivateFromPool`을 호출한 뒤 `NewAvailableEnemies` 끝에 추가한다.
+  7. 실제 생성 성공 수를 `PoolSize`로 사용해 `ST_EnemyPool`을 만들고 `EnemyPools.Add`의 반환값을 `NewPoolIndex`로 저장한다.
+  8. `PoolIndexByEnemyID.Add(MonsterID, NewPoolIndex)`로 ID 조회를 등록한다.
+  9. `PoolIndicesByType.Find(MonsterType)` 결과의 `PoolIndices`에 `NewPoolIndex`를 추가한다. 기존 키가 없으면 새 `ST_EnemyPoolIndexList`를 만들고, 있으면 수정한 구조체를 같은 키로 다시 `Add`한다.
+  10. 전체 정의 처리가 끝나면 인덱스 정합성을 검사하고 성공 시에만 `bPoolsInitialized = true`로 설정한다.
+- 런타임 불변 조건:
+  - 초기화 이후 `EnemyPools`에 `Remove Index`, `Insert`, `Sort`를 사용하지 않는다. 요소 순서를 바꾸면 두 조회 Map의 인덱스가 무효화된다.
+  - 풀 인덱스를 SaveGame에 저장하지 않는다. 카탈로그 순서가 바뀌면 실행마다 인덱스가 달라질 수 있다.
+  - 중복 `MonsterID`, 로드 실패 Class, Spawn 실패 Actor, 범위를 벗어난 Index는 오류로 기록하고 잘못된 참조를 배열에 넣지 않는다.
+  - 풀 고갈 시 새 Actor를 런타임에 무제한 생성하거나 활성 Actor를 강제 회수하지 않고 해당 Spawn 요청을 건너뛴다.
+- 완료 조건:
+  - `Skeleton` 정의가 `EnemyPools`의 실제 반환 인덱스와 `PoolIndexByEnemyID`에 동일하게 등록된다.
+  - `Normal`, `Elite`, `Boss`의 `PoolIndicesByType`에 해당 Type과 일치하는 Pool Index만 포함된다.
+  - `PoolIndexByEnemyID`의 모든 값이 `EnemyPools.IsValidIndex`를 통과하고, 조회한 Pool의 `EnemyID`가 Map 키와 일치한다.
+  - 초기화 재호출 시 Actor가 중복 생성되지 않는다.
+  - Blueprint 컴파일 오류와 새 경고가 없고 PIE에서 Skeleton 초기 풀 수, 비활성 상태, ID 조회 결과를 확인한다.
 - 현재 1단계 완료 조건:
   - Unreal Engine 5.7.4 Blueprint-only로 구현한다.
   - `ActivateFromPool` 호출 후 `bInPool=false`, 생존 상태, 최대 체력, 지정 Transform, Enemy 표시·Collision·필요 Tick이 복원된다.
@@ -110,20 +148,21 @@
   - 관련 Blueprint 컴파일 오류와 새 경고가 없다.
   - PIE에서 수동으로 Skeleton을 `Activate → Deactivate → Activate`했을 때 상태 초기화를 확인한다.
 - 영향 예상: `Content/Enemy/EnemyBase/BP_EnemyBase`, `Content/Struct/E_EnemyPoolState`(신규), 이후 `Content/Managers/BP_EnemySpawnManager`
-- 현재 확인: `BP_EnemyBase`에는 `ActivateFromPool`, `DeactivateFromPool`, `CurrentHP`, `bIsAlive`, `bInPool`, `PoolOwner`, `OwningTile`, `AttackTimerHandle`, `DeathTimerHandle`이 존재한다. 기본 가시성·Collision·Tick·Timer 초기화 노드도 일부 있으나 호출 순서와 재활성화 초기화, RewardBox 전이는 PIE 검증되지 않았다. `BP_EnemySpawnManager`에는 아직 FIFO 대여·반환 함수와 컨테이너 로직이 없다.
+- 현재 확인: `BP_EnemyBase`에는 `ActivateFromPool`, `DeactivateFromPool`, `CurrentHP`, `bIsAlive`, `bInPool`, `PoolOwner`, `OwningTile`, `AttackTimerHandle`, `DeathTimerHandle`이 존재한다. 기본 가시성·Collision·Tick·Timer 초기화 노드도 일부 있으나 호출 순서와 재활성화 초기화, RewardBox 전이는 PIE 검증되지 않았다. `BP_EnemySpawnManager`에는 `EnemyPools`, `PoolIndexByEnemyID`, `PoolIndicesByType` 컨테이너와 `ST_EnemyPool`, `ST_EnemyPoolIndexList` 구조체가 준비됐으나 초기화·FIFO 대여·반환 그래프는 아직 없다.
 - 완료 작업: `NEXT-01`의 타일 지속 이동·이탈 감지·재배치는 Trello 완료 상태와 2026-08-26 PIE 실행 기록을 기준으로 완료 처리했다.
-- 다음 행동: UE 5.7.4에서 `E_EnemyPoolState`를 만든 뒤 `BP_EnemyBase.ActivateFromPool`과 `DeactivateFromPool`을 위 순서대로 정리하고 Skeleton 한 개로 재사용 PIE를 검증한다. 그 다음 `ConvertToRewardBox`와 Manager의 `AcquireEnemyByID`·`ReturnEnemy`를 연결한다. `NEXT-03A`의 `Unknown structure` 수정과 Orc·Dragon 확장은 이 수직 단위가 끝난 뒤 재개한다.
+- 다음 행동: UE 5.7.4에서 `E_EnemyPoolState`를 만든 뒤 `BP_EnemyBase.ActivateFromPool`과 `DeactivateFromPool`을 위 순서대로 정리하고 Skeleton 한 개로 재사용 PIE를 검증한다. 이어서 `InitializeEnemyPools`로 카탈로그 기반 `EnemyPools`와 두 조회 Map을 구성·검증하고, 그 다음 `AcquireEnemyByID`·`ReturnEnemy`와 `ConvertToRewardBox`를 연결한다. `NEXT-03A`의 Orc·Dragon 확장은 이 수직 단위가 끝난 뒤 재개한다.
 
 ## 5. 구현 순서
 
 1. `NEXT-03B` 1단계 Enemy Actor 활성화·비활성화 생명주기
-2. `NEXT-03B` 2단계 RewardBox 전환·Manager FIFO 대여·반환
-3. `NEXT-03A` 구조체 참조 복구·종별 자식 Blueprint·카탈로그 마무리
-4. `NEXT-03C` Stage별 몬스터 편성·선택
-5. `NEXT-04` 타일 SpawnPoint 기반 몬스터 배치·회수
-6. `NEXT-02` 프로젝타일 생성 및 발사
-7. `NEXT-05` 프로젝타일 매니저
-8. `NEXT-06` 저장되는 플레이어 스테이터스
+2. `NEXT-03B` 2단계 카탈로그 기반 `InitializeEnemyPools`와 조회 인덱스 구성
+3. `NEXT-03B` 3단계 Manager FIFO 대여·반환과 RewardBox 전환
+4. `NEXT-03A` 구조체 참조 복구·종별 자식 Blueprint·카탈로그 마무리
+5. `NEXT-03C` Stage별 몬스터 편성·선택
+6. `NEXT-04` 타일 SpawnPoint 기반 몬스터 배치·회수
+7. `NEXT-02` 프로젝타일 생성 및 발사
+8. `NEXT-05` 프로젝타일 매니저
+9. `NEXT-06` 저장되는 플레이어 스테이터스
 
 ## 6. 위험과 검증
 
@@ -139,6 +178,9 @@
 | 등급·이름별 하위 풀이 없거나 고갈됨 | 잘못된 키는 경고 후 건너뛰고, 고갈 시 활성 몬스터 강제 회수 없이 해당 요청만 생략 |
 | 표시 이름을 Map 키로 사용해 이름 변경·중복 시 풀 조회 실패 | 표시용 이름과 별도로 변경되지 않는 `MonsterID` Name을 사용 |
 | Blueprint Map의 구조체/배열 값을 수정했지만 원본에 반영되지 않음 | ID→PoolIndex Map은 조회 전용으로 두고 실제 변경 가능한 풀은 Array에서 수정 후 `Set Array Elem` |
+| `EnemyPools` 순서 변경으로 조회 Map의 인덱스 무효화 | 초기화 후 `Remove Index`·`Insert`·`Sort`를 금지하고 재초기화 시 전체 컨테이너를 함께 재구성 |
+| 초기화 중복 호출로 비활성 Actor가 중복 생성됨 | `bPoolsInitialized` Guard를 두고 재초기화가 필요하면 별도 정리 함수로 기존 Actor를 먼저 회수·제거 |
+| Soft Class 로드 또는 Actor Spawn 실패 | 정의별 유효성 검사 후 실패 항목을 건너뛰고 실제 생성 성공 수만 `PoolSize`에 기록 |
 | Data Table의 기본 생존 상태가 런타임 피해로 오염됨 | `BaseStatus`를 원본으로 유지하고 대여 시 `CurrentStatus`로 복사해 체력과 생존 상태 초기화 |
 | 몬스터 풀이 모두 사용 중 | 활성 몬스터 강제 회수 대신 Spawn 요청 건너뛰기, PIE에서 적정 PoolSize 측정 |
 | Tile 진입 직후 몬스터 조우 또는 몬스터끼리 겹침 | `EntrySafetyMargin`, 끝 여백, 최소 전후 간격으로 무작위 범위를 제한하고 배치 실패 시 요청 생략 |
@@ -164,6 +206,9 @@
 - 2026-08-26: 구현 우선순위를 `NEXT-03B`로 바꾸고, 먼저 `BP_EnemyBase.ActivateFromPool`과 `DeactivateFromPool`의 Actor 내부 생명주기를 완성한다. FIFO 컨테이너 변경은 Manager만 담당한다.
 - 2026-08-26: Enemy 사망은 즉시 풀 반환하지 않고 같은 Actor를 `RewardBox` 상태로 전환한다. 반환은 보상 상자 Player Overlap 또는 MapManager의 타일 회수 요청 두 경로로 제한한다.
 - 2026-08-26: MapManager의 타일 재배치는 `ReturnEnemiesOwnedByTile → 타일 이동 → PopulateTile` 순서로 EnemySpawnManager와 연동한다. 보상 내용은 별도 `ISSUE-01`로 이관한다.
+- 2026-08-26: `E_EnemyType`의 `Normal`, `Elite`, `Boss`를 몬스터 등급이자 Type으로 유지한다. 각 Type 아래에는 Skeleton 같은 소형 일반 몬스터, Orc·Wyvern 같은 정예 몬스터, Dragon·Phoenix 같은 보스 몬스터의 독립 풀을 둔다.
+- 2026-08-26: `EnemyPools` Array를 런타임 원본으로 사용하고, `PoolIndexByEnemyID`와 `PoolIndicesByType`은 `EnemyPools.Add` 반환 인덱스로 초기화하는 조회 전용 파생 데이터로 사용한다. 인덱스는 하드코딩하지 않는다.
+- 2026-08-26: `NEXT-03B`의 다음 수직 단위는 카탈로그 기반 `InitializeEnemyPools` 구현으로 정한다. Actor 생명주기 완료 후 초기 풀 생성·ID 조회·Type별 후보 인덱스와 중복 초기화 방지를 구현한다.
 
 ## 8. 변경 로그
 
@@ -182,3 +227,4 @@
 - 2026-08-26: `NEXT-03A`의 실제 에셋 `ST_EnemyDefinition`, `BP_Enemy_Skel`, `BPDA_EnemyCatalogBase`, `DA_EnemyCatalog`와 `NEXT-03B`의 `BP_EnemySpawnManager` 컨테이너 생성을 현황에 반영했다. UE 5.7.4 전체 Blueprint 컴파일은 0개 오류·0개 경고·로드 실패 0개였으나, 카탈로그의 `EnemyDefinitions` 구조체 직렬화에서 `Unknown structure` 오류 1건을 별도 미완료 위험으로 기록했다.
 - 2026-08-26: 사용자 지정 생명주기에 맞춰 현재 작업을 `NEXT-03B`로 전환했다. 사망→RewardBox, 보상 획득/타일 회수→풀 반환, 타일 회수 전 반환·재배치 후 재배치 요청의 경계를 문서화하고 보상 내용은 `ISSUE-01`로 분리했다.
 - 2026-08-26: 현재 작업물을 의존성 순서로 분리해 플레이어 경로(`6e0207c`), 카메라(`e9c3379`), 타일 Manager(`1fd4fff`), Enemy 공통 데이터(`ca7bed0`), Enemy 기반·Manager(`ff2e145`), Skeleton Knight 예제(`fceb3c7`), Skeleton Enemy·카탈로그(`fc413d4`) 커밋으로 기록했다. 외부 예제는 실제 참조하는 `Skeleton`, `Skeleton_Knight_01`과 Enemy 발판의 돌 Texture 2개만 포함했다.
+- 2026-08-26: `BP_EnemySpawnManager`의 최신 컨테이너와 신규 `ST_EnemyPool`, `ST_EnemyPoolIndexList`를 기준으로 `InitializeEnemyPools` 구현 순서, 실패 처리, 인덱스 불변 조건과 PIE 완료 조건을 다음 작업으로 문서화했다.
