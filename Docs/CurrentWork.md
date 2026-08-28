@@ -1,12 +1,12 @@
 # Runner 현재 작업
 
-마지막 갱신: **2026-08-27 KST**
+마지막 갱신: **2026-08-28 KST**
 
 목표 완료: **2026-09-03 18:00 KST**
 
-현재 상태: **NEXT-01 맵 풀링 완료, NEXT-03B 초기 Enemy Actor 생성·비활성 FIFO 구성 및 Mobility 오류 수정 완료 후 조회 Map 정합성과 PIE 재검증 단계**
+현재 상태: **NEXT-03B Enemy FIFO 기반을 사용해 NEXT-03C Stage 규칙과 NEXT-04 타일 배치·반환을 연결하는 단계**
 
-현재 작업: **NEXT-03B 2단계 — `BP_EnemySpawnManager.InitEnemyPool`의 ID·Type 조회 Map 완성과 PIE 재검증**
+현재 작업: **NEXT-03C/NEXT-04 수직 단위 — `BP_LevelManager.EnemyPlaced(TileRef)`가 `NormalEnemyBox`와 `BossElitePos01/02`를 사용해 Stage별 Enemy를 FIFO 대여·초기화·활성화하도록 연결**
 
 ## 1. 제품 한 문장
 
@@ -209,6 +209,8 @@
 
 ## 7. 결정 로그
 
+- 2026-08-28: `BP_BaseTile`의 실제 배치 컴포넌트 `NormalEnemyBox`, `BossElitePos01`, `BossElitePos02`를 Enemy 배치의 단일 위치 원천으로 사용한다. Normal은 Box Local X를 SpawnCount만큼 분할한 정형 무작위 위치를 사용하고, Elite/Boss는 `01 → 02` 순서의 Scene Component World Transform을 사용한다. 지정되지 않은 `BP_LevelManager.EnemyManager`는 BeginPlay에서 `BP_EnemySpawnManager`를 한 번만 찾아 캐시한다.
+
 - 2026-08-25: 사용자 지시에 따라 Trello의 기존 상세 백로그를 보관하고, 구현 완료 3개와 앞으로 구현할 6개만 현재 작업 범위로 다시 구성한다.
 - 2026-08-25: 구현 완료 항목은 사용자 확인 기준으로 기록하며, 별도의 UE 5.7.4 컴파일·PIE 재검증 결과는 추후 기능 검증 시 추가한다.
 - 2026-08-25: 현재 작업은 `NEXT-01 맵 풀링 및 지속 이동`으로 지정한다.
@@ -232,6 +234,9 @@
 
 ## 8. 변경 로그
 
+- 2026-08-28: 사용자 제공 배치 레퍼런스를 반영해 `Docs/BlueprintSnippets/EnemyPlaced.md`를 추가했다. 기존 `AcquireEnemy(E_EnemyType)`와 `ActivateFromPool` 시그니처에 맞춰 `EnemyPlaced`, Type별 배치 Helper, `NormalEnemyBox` 구간 분할, `BossElitePos01/02` 선택, 활성화 실패 반환, `TileEnemies` 소유권과 TileManager 호출 순서를 함수별 작성표로 정리했다. 실제 에셋 적용, 컴파일과 PIE는 사용자 적용 후 검증 대기다.
+
+- 2026-08-28: 사용자 요청에 따라 에디터 자동 배치를 중단하고 `BP_LevelManager`, `BP_TileManager`, `BP_BaseTile`, `BP_EnemySpawnManager`의 Stage 계산·마지막 타일·몬스터 생성/배치/반환 연결을 `Docs/BlueprintSnippets/StageTileEnemyManagerFlow.md`의 복사 가능한 함수별 Blueprint 작성표로 분리했다. 실제 에셋 적용, 컴파일과 PIE는 사용자 적용 후 검증 대기다.
 - 2026-08-25: 현재 에셋 `BP_RunnerPlayer`, `NewAnimBlueprint`, `BP_BaseTile`, `BP_MapOutLine`, `TileManager`, `M_BaseTile`, `MI_BaseTile`을 기준으로 9개 Trello 카드의 구현 내용을 UE 5.7.4 Blueprint 단위로 구체화했다. 완료 카드 3개의 신규 구현 항목 23개는 완료, 앞으로 구현할 카드 6개의 신규 항목 73개는 미완료로 기록했다. 재조회 결과 체크리스트 14개·항목 111개이며 누락·조회 오류는 0건이다.
 - 2026-08-25: CurrentWork를 사용자 지정 9개 카드 구조로 재작성했다. 기존 Trello 열린 카드 80개를 모두 보관하고 새 카드 9개를 생성했다. 재조회 결과 완료 3개·진행 중 1개·이번 스프린트 5개만 열려 있으며, 완료 카드와 사용자 지정 하위 체크리스트 상태가 모두 일치한다.
 - 2026-08-25: `NEXT-01`의 초기 타일 생성과 순차 배치 구현을 사용자 확인 기준으로 기록했다. UE 5.7.4 `CompileAllBlueprints`에서 Blueprint 오류 0개·경고 0개·로드 실패 0개를 확인했으며, 샌드박스 DDC/Zen 쓰기 제한으로 명령 종료 코드만 1이었다. 타일 이동·범위 이탈 감지·재배치와 PIE 검증은 다음 단계로 남겼다.
