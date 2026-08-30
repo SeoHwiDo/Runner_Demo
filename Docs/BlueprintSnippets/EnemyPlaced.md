@@ -1,414 +1,301 @@
-# `BP_LevelManager.EnemyPlaced` Blueprint 작성표
+# `EnemyPlaced` 적 배치 설계
 
 기준: Unreal Engine 5.7.4, Blueprint-only
+상태: 설계 갱신. Blueprint 그래프 적용과 Compile·PIE 검증은 별도 작업이다.
 
-목표: `BP_TileManager`가 재사용 타일을 앞쪽으로 이동하고 Stage 계산을 마친 뒤 `BP_LevelManager.EnemyPlaced(TileRef)`를 호출한다. `BP_LevelManager`는 현재 Stage 구간에 맞는 Enemy를 FIFO 풀에서 대여하고, `BP_BaseTile`의 배치 컴포넌트 Transform으로 초기화·활성화한다.
+## 1. 목표
 
-## 1. 확인된 기존 API와 컴포넌트
+타일에 미리 둔 강화 표지판 2개는 초기화 시 비활성화한다. Enemy 배치 요청이 있는 타일에서만 표지판을 먼저 활성화한 뒤, Enemy를 다음 우선순위로 풀에서 대여·활성화한다.
 
 ```text
-BP_BaseTile
-  BossElitePos01 : Scene Component
-  BossElitePos02 : Scene Component
-  NormalEnemyBox : Box Collision
-
-BP_LevelManager
-  CalculateStage()
-  StageIdx          : Integer
-  TileIdxInStage    : Integer
-  EnemyManager      : BP_EnemySpawnManager Object Reference
-
-BP_EnemySpawnManager
-  AcquireEnemy(mosterType : E_EnemyType)
-    return  : BP_EnemyBase Object Reference
-    success : Boolean
-  ReturnEnemy(Enemy)
-
-BP_EnemyBase
-  ActivateFromPool(
-    SpawnTransform : Transform,
-    NewOwningTile  : BP_BaseTile Object Reference
-  )
-    Success : Boolean
+Boss → Elite → Normal
 ```
 
-`AcquireEnemy`는 풀 안의 `AvailableEnemies[0]`을 꺼내고 수정한 `ST_EnemyPool`을 `EnemyPools`에 다시 저장하는 기존 FIFO 구현을 그대로 사용한다.
+모든 Enemy는 서로 겹치지 않으며, 중심점 사이에 `MonsterMinCenterDistance` 이상의 간격을 둔다. 이 값에는 Enemy 충돌 범위와 플레이어 1명 통과 여유를 포함한다.
 
-## 2. 선행 변수
+`NormalEnemyBox`는 더 이상 Enemy 배치에 사용하지 않는다.
 
-### `BP_BaseTile`
+## 2. 타일 공간 규칙
 
-다음 변수를 추가한다.
+타일 진행 방향은 `TileFront → TileBack`이다.
 
 ```text
-TileEnemies : BP_EnemyBase Object Reference Array
+TileFront
+→ 비활성 상태로 미리 배치된 강화 표지판 예약 영역
+→ Boss / Elite 예약 영역
+→ Normal 2레인 배치 영역
+→ TileBack
 ```
 
-목적:
-
-- 타일 재사용 전에 해당 타일이 소유한 Enemy만 반환한다.
-- `Get All Actors Of Class`로 전체 Enemy를 검색하지 않는다.
-- 활성화에 성공한 Enemy만 `Add Unique`로 등록한다.
-
-### `BP_LevelManager`
-
-다음 변수 기본값을 사용한다.
+### `BP_BaseTile` 필수 항목
 
 ```text
-EarlyNormalPattern : Integer Array = [1, 1, 2, 2, 2]
-MidNormalPattern   : Integer Array = [1, 1, 2, 2]
-MidEliteCount      : Integer       = 1
-BossCount          : Integer       = 1
+Tiles                       : Static Mesh Component
+TileFront                   : Scene Component
+TileBack                    : Scene Component
+BossElitePos01              : Scene Component
+BossElitePos02              : Scene Component
+TileEnemies                 : BP_EnemyBase Object Reference Array
+MonsterMinCenterDistance    : Float
+SignReservedLength          : Float
+강화 표지판 2개             : 타일에 미리 배치한 Component 또는 Child Actor
+LeftSignStatus              : E_Status
+LeftSignValue               : Float
+RightSignStatus             : E_Status
+RightSignValue              : Float
 ```
 
-## 3. `BP_LevelManager.BeginPlay` — `EnemyManager` 1회 캐시
-
-현재 `EnemyManager`가 지정되지 않았으므로 `BeginPlay`에서 한 번만 찾는다. Tick이나 `EnemyPlaced` 호출마다 검색하지 않는다.
+권장 초기값:
 
 ```text
-Event BeginPlay
-→ Get Actor Of Class
-    Actor Class = BP_EnemySpawnManager
-→ Cast To BP_EnemySpawnManager
-
-Cast Success
-→ Set EnemyManager
-
-Cast Failed
-→ Print String
-    In String     = "[LevelManager] BP_EnemySpawnManager를 찾지 못했습니다."
-    Print To Log  = true
-    Print To Screen = Development에서만 true
+MonsterMinCenterDistance = 300.0
 ```
 
-레벨에 `BP_EnemySpawnManager` 인스턴스는 정확히 하나만 배치한다. 두 개 이상 배치할 가능성이 생기면 `Get Actor Of Class` 대신 GameMode 또는 명시적 참조 주입으로 교체한다.
+`SignReservedLength`는 강화 표지판 2개가 차지하는 `TileFront` 쪽 길이다. 표지판의 실제 폭과 간격을 기준으로 설정한다.
 
-## 4. 호출 위치 — `BP_TileManager.Box EndOverlap`
+### 컴포넌트 배치 조건
 
-`BP_TileManager`에 이미 있는 `LVManager`를 사용한다. `BP_BaseTile`이 `BP_LevelManager`를 직접 참조하게 만들지 않는다.
+- 강화 표지판은 `TileFront`부터 `SignReservedLength` 안에 미리 배치한다.
+- `BossElitePos01`, `BossElitePos02`는 표지판 예약 영역 뒤에 배치한다.
+- 두 Boss/Elite 위치와 Normal 시작 위치의 2D 거리는 모두 `MonsterMinCenterDistance` 이상이어야 한다.
+- `BossElitePos01`과 `BossElitePos02`의 2D 거리도 `MonsterMinCenterDistance` 이상이어야 한다.
+- `Tiles` 폭의 절반은 `MonsterMinCenterDistance` 이상이어야 같은 행의 Normal 2레인이 서로 겹치지 않는다.
 
-타일 재사용 순서는 다음으로 고정한다.
+## 3. 호출 순서
+
+타일 재사용 시 실행 순서를 고정한다.
 
 ```text
-Box OnComponentEndOverlap
-→ Cast To BP_BaseTile(OtherActor)
-→ 기존 TileEnemies 반환
+기존 TileEnemies 반환
 → TileEnemies Clear
-→ 재사용 타일 Set Actor Location
-→ Set LastTile
-→ LVManager.CalculateStage
-→ Branch(IsEnd)
-
-False
-→ LVManager.EnemyPlaced(As BP_BaseTile)
-
-True
-→ 마지막 타일 처리
-→ 필요한 경우 EnemyPlaced를 먼저 호출한 뒤 End 상태를 적용
+→ 타일 새 위치로 이동
+→ BP_BaseTile 초기화: 강화 표지판 2개 비활성화
+→ CalculateStage
+→ EnemyPlaced(TileRef)
 ```
 
-`EnemyPlaced`는 반드시 타일의 새 위치와 `CalculateStage` 결과가 확정된 다음 호출한다. 이동 전에 호출하면 Enemy가 타일의 이전 World Transform을 사용한다.
+`BP_TileManager`는 표지판을 Spawn하거나 Destroy하지 않는다. 표지판은 `BP_BaseTile`에 미리 배치한다.
 
-## 5. `BP_LevelManager.EnemyPlaced`
+`BP_BaseTile` 초기화는 표지판 2개를 모두 비활성화한다. 표지판 비활성화에는 최소한 표시와 Collision 비활성화가 포함된다.
+
+Enemy가 활성화에 성공하면 즉시 `TileEnemies`에 `Add Unique`한다. 다음 우선순위 Enemy는 이 배열에 등록된 위치를 기준으로 여유 공간을 검사한다.
+
+## 4. `EnemyPlaced`
+
+현재 에셋의 함수명 `PlacedEnemyTypeIOnTile`과 `SeclectSpawnTransform`은 오탈자가 있어도 이번 제출 범위에서는 이름을 유지한다.
+
+유효한 Pattern과 `SpawnCount > 0`이 확인된 타일에서만, 첫 `PlacedEnemyTypeIOnTile` 호출 전에 타일에 미리 둔 강화 표지판 2개를 활성화한다.
+
+```text
+유효한 Enemy 요청 없음
+→ 초기화 상태의 표지판 비활성화 유지
+→ Success = false
+
+유효한 Enemy 요청 있음
+→ PlaceUpgradeSigns(TileRef)
+→ Boss → Elite → Normal 순서의 Enemy 배치 시작
+```
+
+풀 고갈로 Enemy 대여가 실패해도, 해당 타일은 Enemy 배치 요청이 있었으므로 활성화한 표지판은 유지한다. 표지판 활성화 기준은 실제 Enemy 활성화 성공 여부가 아니라 유효한 Enemy 배치 요청 여부다.
+
+## 5. `PlaceUpgradeSigns`
+
+`BP_LevelManager`에 구현한다. 표지판을 Spawn하지 않고, `TileRef`의 `LeftSign`, `RightSign`과 해당 강화 데이터를 설정한다.
+
+### 고정 강화값
+
+```text
+HorizonSpeed = +100.0
+ArrowRange   = +200.0
+ArrowSpeed   = +150.0
+ArrowCount   = +1.0
+```
+
+### 실행 흐름
+
+```text
+PlaceUpgradeSigns(TileRef)
+→ E_Status 배열 생성
+  [HorizonSpeed, ArrowRange, ArrowSpeed, ArrowCount]
+→ Shuffle
+→ LeftStatus  = Array[0]
+→ RightStatus = Array[1]
+→ GetFixedStatusValue(LeftStatus)
+→ GetFixedStatusValue(RightStatus)
+→ TileRef.LeftSignStatus  설정
+→ TileRef.LeftSignValue   설정
+→ TileRef.RightSignStatus 설정
+→ TileRef.RightSignValue  설정
+→ LeftSign / RightSign 표시와 Collision 활성화
+```
+
+`Shuffle` 후 앞의 두 원소를 사용하므로 두 표지판에는 서로 다른 Status가 들어간다.
+
+### `GetFixedStatusValue`
+
+`BP_LevelManager`의 Pure 함수로 구현한다.
+
+```text
+Input: Status : E_Status
+Output: Value : Float
+
+Switch on E_Status
+  HorizonSpeed → 100.0
+  ArrowRange   → 200.0
+  ArrowSpeed   → 150.0
+  ArrowCount   → 1.0
+```
+
+```text
+Early 타일
+→ PlacedEnemyTypeIOnTile(TileRef, Normal, NormalCount)
+
+Mid 타일
+→ PlacedEnemyTypeIOnTile(TileRef, Elite, MidEliteCount)
+→ PlacedEnemyTypeIOnTile(TileRef, Normal, NormalCount)
+
+Boss 타일
+→ PlacedEnemyTypeIOnTile(TileRef, Boss, BossCount)
+```
+
+같은 타일에 세 Type을 모두 요청하는 경우에도 호출 순서는 항상 아래와 같다.
+
+```text
+Boss → Elite → Normal
+```
+
+`Mid` 구간의 기존 `Normal → Elite` 호출 순서는 `Elite → Normal`으로 변경한다.
+
+## 6. `PlacedEnemyTypeIOnTile`
+
+```text
+AcquireEnemy
+→ SeclectSpawnTransform
+→ ActivateFromPool(SpawnTransform, TileRef)
+→ 성공한 Enemy만 TileRef.TileEnemies Add Unique
+```
+
+`SeclectSpawnTransform`이 실패하면 대여한 Enemy를 `ReturnEnemy`로 반환하고 해당 요청을 생략한다. 풀 고갈 시 새 Actor를 Spawn하거나 활성 Actor를 강제 회수하지 않는다.
+
+## 7. `SeclectSpawnTransform`
 
 ### 함수 시그니처
 
 ```text
 Input
-  TileRef : BP_BaseTile Object Reference
+  TileRef     : BP_BaseTile Object Reference
+  EnemyType   : E_EnemyType
+  SpawnIndex  : Integer
+  SpawnCount  : Integer
 
 Output
-  Success : Boolean
+  SpawnTransform   : Transform
+  transformSuccess : Boolean
 ```
 
-### 지역 변수
+`SpawnCount`는 위치 계산에 사용하지 않는다. Normal 위치는 `SpawnIndex`를 이용한 고정 슬롯으로 결정한다.
+
+### 6.1 Boss / Elite
 
 ```text
-bAnyPlaced : Boolean = false
-PatternIndex : Integer
-NormalCount : Integer
+SpawnIndex % 2
+  0 → BossElitePos01.GetComponentTransform
+  1 → BossElitePos02.GetComponentTransform
 ```
 
-### 검증과 Stage 구간 분기
+선택한 Transform 후보와 `TileEnemies`의 모든 유효 Enemy 위치를 2D 거리로 비교한다.
 
 ```text
-EnemyPlaced Entry
-→ Set bAnyPlaced = false
-→ Is Valid(TileRef)
-→ Branch
-
-False
-→ Return Success = false
-
-True
-→ Is Valid(EnemyManager)
-→ Branch
-
-False
-→ Return Success = false
-
-True
-→ Branch(TileIdxInStage <= 5)
+Distance2D(Candidate, ExistingEnemy) >= MonsterMinCenterDistance
 ```
 
-#### Early: Tile 1~5
+조건을 만족하면 `SpawnTransform`으로 반환한다. 만족하지 않으면 `transformSuccess = false`로 반환한다.
+
+### 6.2 Normal
+
+Normal은 `Tiles`의 Local Bounds에서 Y 폭을 구해, 타일 폭을 반으로 나눈 두 구역의 중앙에만 배치한다.
 
 ```text
-True
-→ Set PatternIndex = TileIdxInStage - 1
-→ EarlyNormalPattern Is Valid Index(PatternIndex)
-→ Branch
+Tiles.GetLocalBounds
+→ LocalMin, LocalMax
 
-True
-→ Set NormalCount = EarlyNormalPattern[PatternIndex]
-→ PlaceEnemyTypeOnTile(
-     TileRef,
-     Normal,
-     NormalCount
-   )
-→ Return Success = 반환된 bAnyPlaced
+LaneIndex = SpawnIndex % 2
+RowIndex  = SpawnIndex / 2   // 정수 나눗셈
 
-False
-→ Return Success = false
+LaneAlpha = 0.25 + (LaneIndex * 0.5)
+LocalY    = Lerp(LocalMin.Y, LocalMax.Y, LaneAlpha)
 ```
 
-#### Mid: Tile 6~9
-
-Early Branch의 False 실행선:
+따라서 Normal의 Y 위치는 다음 두 값이다.
 
 ```text
-→ Branch(TileIdxInStage <= 9)
-
-True
-→ Set PatternIndex = TileIdxInStage - 6
-→ MidNormalPattern Is Valid Index(PatternIndex)
-→ Branch
-
-True
-→ Set NormalCount = MidNormalPattern[PatternIndex]
-→ PlaceEnemyTypeOnTile(TileRef, Normal, NormalCount)
-→ PlaceEnemyTypeOnTile(TileRef, Elite, MidEliteCount)
-→ Return Success = Normal 또는 Elite가 한 마리 이상 활성화됐는지
-
-False
-→ Return Success = false
+LocalMin.Y + (전체 Y 폭 * 0.25)
+LocalMin.Y + (전체 Y 폭 * 0.75)
 ```
 
-#### Boss: Tile 10
-
-Mid Branch의 False 실행선:
+Normal의 진행 방향 거리 계산:
 
 ```text
-→ PlaceEnemyTypeOnTile(TileRef, Boss, BossCount)
-→ Return Success = 반환된 bAnyPlaced
+NormalStartDistance
+  = SignReservedLength
+  + (MonsterMinCenterDistance * 2)
+
+ForwardDistance
+  = NormalStartDistance
+  + (RowIndex * MonsterMinCenterDistance)
 ```
 
-함수 성공은 요청 수 전부가 아니라 한 마리 이상 배치됐는지를 뜻한다. 풀 고갈 시 활성 Enemy를 강제 회수하거나 새 Actor를 생성하지 않는다.
-
-## 6. `BP_LevelManager.PlaceEnemyTypeOnTile`
-
-### 함수 시그니처
+`TileFront` 월드 위치에서 `Normalize(TileBack - TileFront)` 방향으로 `ForwardDistance`만큼 이동하고, `Tiles`의 Right Vector 방향으로 `LocalY`만큼 이동해 후보 위치를 만든다.
 
 ```text
-Input
-  TileRef    : BP_BaseTile Object Reference
-  EnemyType : E_EnemyType
-  SpawnCount : Integer
-
-Output
-  AnyPlaced : Boolean
+CandidateLocation
+  = TileFront.WorldLocation
+  + ForwardDirection * ForwardDistance
+  + Tiles.RightVector * LocalY
 ```
 
-### 지역 변수
+`NormalStartDistance` 앞의 두 간격은 Boss/Elite 예약 공간이다. Boss 또는 Elite가 없는 타일에서도 같은 공간을 예약해 모든 타일의 배치 규칙을 동일하게 유지한다.
+
+후보 위치가 `TileEnemies`의 유효 Enemy와 `MonsterMinCenterDistance`보다 가까우면 다음 행을 검사한다.
 
 ```text
-SpawnIndex      : Integer
-AcquiredEnemy   : BP_EnemyBase Object Reference
-SpawnTransform  : Transform
-ActivationOK    : Boolean
+TryRow = RowIndex부터 타일 끝 전까지 반복
+→ 같은 Lane의 CandidateLocation 계산
+→ 모든 Existing Enemy와 Distance2D 검사
+→ 비어 있으면 SpawnTransform 반환
 ```
 
-### 공통 실행 흐름
+빈 행이 없으면 `transformSuccess = false`를 반환한다.
+
+### 6.3 Transform 공통 설정
 
 ```text
-PlaceEnemyTypeOnTile Entry
-→ Set AnyPlaced = false
-→ Branch(SpawnCount > 0)
-
-False
-→ Return AnyPlaced = false
-
-True
-→ For Loop
-    First Index = 0
-    Last Index  = SpawnCount - 1
-
-Loop Body
-→ Set SpawnIndex = Index
-→ EnemyManager.AcquireEnemy(EnemyType)
-→ Branch(success AND Is Valid(return))
-
-False
-→ 다음 Loop
-
-True
-→ Set AcquiredEnemy = return
-→ SelectSpawnTransform(TileRef, EnemyType, SpawnIndex, SpawnCount)
-→ Branch(TransformSuccess)
-
-False
-→ EnemyManager.ReturnEnemy(AcquiredEnemy)
-→ 다음 Loop
-
-True
-→ AcquiredEnemy.ActivateFromPool(SpawnTransform, TileRef)
-→ Set ActivationOK = Success
-→ Branch(ActivationOK)
-
-False
-→ EnemyManager.ReturnEnemy(AcquiredEnemy)
-→ 다음 Loop
-
-True
-→ TileRef.TileEnemies Add Unique(AcquiredEnemy)
-→ Set AnyPlaced = true
-→ 다음 Loop
-
-Completed
-→ Return AnyPlaced
+Location = 선택한 후보 월드 위치
+Rotation = Tiles.GetComponentRotation
+Scale    = (1, 1, 1)
 ```
 
-대여 후 Transform 계산이나 활성화가 실패하면 반드시 `ReturnEnemy`를 호출한다. 그렇지 않으면 Actor가 `ActiveEnemies`에는 남고 화면에는 나오지 않는 풀 누수가 발생한다.
+Enemy가 플레이어 반대 방향을 보아야 하는 경우에는 `Rotation`만 별도 조정한다. 위치 계산 규칙은 변경하지 않는다.
 
-## 7. `BP_LevelManager.SelectSpawnTransform`
+## 8. 제외 사항
 
-### 함수 시그니처
+- `NormalEnemyBox` 기반 범위 추첨
+- Local X 구간 분할 및 Random Float 배치
+- Tick 기반 Enemy 검색
+- `Get All Actors Of Class`로 타일 소유 Enemy 검색
+- 풀 고갈 시 새 Enemy Spawn 또는 활성 Enemy 강제 회수
 
-```text
-Input
-  TileRef    : BP_BaseTile Object Reference
-  EnemyType  : E_EnemyType
-  SpawnIndex : Integer
-  SpawnCount : Integer
-
-Output
-  SpawnTransform  : Transform
-  TransformSuccess : Boolean
-```
-
-## 7.1 Normal — `NormalEnemyBox` 내부 정형 무작위
-
-`NormalEnemyBox`의 Local X 전체 범위를 `SpawnCount`개 구간으로 나눈다. 각 Enemy는 자기 구간 안에서만 X를 추첨하고 Y는 Box 전체 폭에서 추첨한다. Z는 Box Component의 Local 원점 평면을 사용한다.
+## 9. 사용자 검증 항목
 
 ```text
-EnemyType == Normal
-→ TileRef.NormalEnemyBox Is Valid
-→ NormalEnemyBox.Get Unscaled Box Extent
-→ Break Vector(BoxExtent)
-
-SafeSpawnCount = Max(SpawnCount, 1)
-FullLocalX     = BoxExtent.X * 2.0
-SegmentWidth   = FullLocalX / SafeSpawnCount
-SegmentMinX    = -BoxExtent.X + (SegmentWidth * SpawnIndex)
-SegmentMaxX    = SegmentMinX + SegmentWidth
-
-LocalX = Random Float In Range(SegmentMinX, SegmentMaxX)
-LocalY = Random Float In Range(-BoxExtent.Y, BoxExtent.Y)
-LocalOffset = Make Vector(LocalX, LocalY, 0.0)
-
-BoxWorldTransform = NormalEnemyBox.Get Component Transform
-WorldLocation     = Transform Location(BoxWorldTransform, LocalOffset)
-WorldRotation     = NormalEnemyBox.Get World Rotation
-
-SpawnTransform = Make Transform
-  Location = WorldLocation
-  Rotation = WorldRotation
-  Scale    = (1, 1, 1)
-
-Return TransformSuccess = true
-```
-
-`Get Scaled Box Extent`와 Component Transform Scale을 동시에 사용하면 Scale이 두 번 적용될 수 있다. 위 그래프는 `Get Unscaled Box Extent + Transform Location` 조합으로 통일한다.
-
-## 7.2 Elite/Boss — `BossElitePos01`, `BossElitePos02`
-
-```text
-EnemyType != Normal
-→ SpawnIndex % 2
-→ Select Scene Component
-    0 = TileRef.BossElitePos01
-    1 = TileRef.BossElitePos02
-→ Is Valid(SelectedComponent)
-
-False
-→ Return TransformSuccess = false
-
-True
-→ SelectedComponent.Get Component Transform
-→ Set SpawnTransform
-→ Return TransformSuccess = true
-```
-
-현재 `MidEliteCount=1`, `BossCount=1`이므로 기본적으로 `BossElitePos01`이 사용된다. 이후 수량을 2로 올리면 두 번째 Actor는 `BossElitePos02`를 사용한다.
-
-## 8. 타일 재사용 전 Enemy 반환
-
-`BP_TileManager`에서 재사용 타일을 이동하기 전에 실행한다.
-
-```text
-As BP_BaseTile.TileEnemies
-→ Set LocalEnemies = TileEnemies 복사본
-→ For Each Loop(LocalEnemies)
-
-Loop Body
-→ Is Valid(Array Element)
-→ Branch(Array Element.OwningTile == As BP_BaseTile)
-
-True
-→ EnemyManager.ReturnEnemy(Array Element)
-
-Completed
-→ As BP_BaseTile.TileEnemies Clear
-→ 타일 이동 실행
-```
-
-순회 중 원본 `TileEnemies`를 바로 수정하지 않는다. 복사본을 순회한 뒤 원본을 Clear한다.
-
-## 9. Stage별 MonsterID 제한에 대한 현재 범위
-
-현재 `AcquireEnemy`는 `E_EnemyType`별 후보 풀을 무작위 선택하며 `ST_EnemyDefinition.MinStage`와 `SpawnWeight`를 직접 검사하지 않는다. 따라서 이 작성표가 보장하는 Stage 규칙은 다음이다.
-
-```text
-Early → Normal
-Mid   → Normal + Elite
-Boss  → Boss
-```
-
-같은 Type 안에서도 Stage별 `MonsterID`, `MinStage`, `SpawnWeight`를 적용하려면 후속으로 다음 API를 추가한다.
-
-```text
-SelectEnemyIDByType(EnemyType, StageIdx)
-AcquireEnemyByID(EnemyID)
-```
-
-이 확장은 현재 `EnemyPlaced`의 배치 Transform과 타일 소유권 흐름을 변경하지 않는다.
-
-## 10. 검증 체크리스트
-
-```text
-1. BeginPlay에서 EnemyManager가 한 번만 설정된다.
-2. Tile 1~5에 Normal [1,1,2,2,2]가 요청된다.
-3. Tile 6~9에 Normal [1,1,2,2]와 Elite 1이 요청된다.
-4. Tile 10에 Boss 1이 요청된다.
-5. Normal Enemy가 NormalEnemyBox 범위 안에 배치된다.
-6. Normal 2마리가 서로 다른 Local X 구간을 사용한다.
-7. Elite/Boss가 BossElitePos01에서 활성화된다.
-8. SpawnCount=2일 때 두 번째 Elite/Boss가 BossElitePos02를 사용한다.
-9. ActivateFromPool 성공 후 OwningTile이 전달한 TileRef와 일치한다.
-10. 활성화 성공 Actor만 TileEnemies에 한 번 등록된다.
-11. 대여 후 Transform/활성화 실패 Actor는 FIFO에 반환된다.
-12. 타일 이동 전 기존 TileEnemies가 모두 반환된다.
-13. 타일 이동과 CalculateStage 후 EnemyPlaced가 호출된다.
-14. 풀 고갈 시 새 Actor 생성이나 활성 Actor 강제 회수가 없다.
-15. Blueprint 컴파일 오류와 새 경고가 없다.
+1. 타일 최초 생성과 재사용 초기화 시 강화 표지판 2개가 비활성화되는지 확인
+2. Enemy 배치 요청이 없는 타일에서는 강화 표지판이 비활성화 상태로 유지되는지 확인
+3. Enemy 배치 요청이 있는 타일에서 두 표지판의 Status가 서로 다르고 고정값이 저장되는지 확인
+4. Enemy 배치 요청이 있는 타일에서는 강화 표지판이 Enemy보다 먼저 활성화되는지 확인
+5. Mid 타일에서 Elite가 Normal보다 먼저 활성화되는지 확인
+6. Boss / Elite / Normal이 서로 MonsterMinCenterDistance 이상 떨어지는지 확인
+7. Normal이 타일 폭의 좌·우 절반 중앙 레인만 사용하는지 확인
+8. Normal이 표지판 및 Boss/Elite 예약 영역 뒤부터 배치되는지 확인
+9. 타일 재사용 시 이전 TileEnemies가 반환되고 새 타일 Enemy만 등록되는지 확인
+10. 풀 고갈 또는 빈 슬롯에서 새 Actor Spawn 없이 요청이 생략되는지 확인
 ```
