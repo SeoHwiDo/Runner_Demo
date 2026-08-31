@@ -8,6 +8,8 @@
 
 현재 작업: **SUBMIT-01 — Normal의 빈 행(01/02)·L/R 무작위 선택과 Boss/Elite의 타입별 단일 전용 포인트 배치 설계 안내**
 
+Git 보조 정비: **LFS 접근 거부 복구·외부 맵 BuiltData의 미푸시 이력 제외·원격 푸시 검증 완료**
+
 ## 1. 제출 목표
 
 오프닝 화면에서 게임, 상점, 저장·불러오기에 접근하고, 인게임에서 오브젝트 풀링과 충돌 전투를 수행하며, 상점에서 재화를 사용해 펫과 영구 스탯을 구매·강화한 결과가 재실행 후에도 유지되는 Unreal Engine 5.7.4 프로젝트 폴더를 제출한다.
@@ -160,6 +162,12 @@
 
 - 2026-08-31: 최신 요청의 타입별 배치 규칙과 Boss/Elite 단일 포인트 분기를 설계 문서에 반영했다. 문서 흐름을 검토했으며 실제 에셋 변경·컴파일·PIE는 미수행이다. 다음 행동은 실제 전용 포인트 참조를 연결하고 빈 행·행 점유·전용 포인트 점유·Bounds 초과 경로를 검증하는 것이다.
 
+- 2026-08-31 (Git 1차 조치 정정): 외부 `.umap` 6개와 관련 `BuiltData.uasset` 3개를 최신 트리에서 제외했지만, BuiltData는 미푸시 조상 커밋 `82e1c25`에 남아 있어 LFS 업로드 대상에서 빠지지 않았다. 당시 최신 트리 확인만으로 제외가 충분하다고 보고한 판단을 정정한다.
+- 2026-08-31 (Git 원인): 실제 `DESKTOP-CTA5QIP\user` 계정으로도 로컬 `.git/lfs/objects` 파일을 읽지 못했다. LFS 객체 4,414개에 비어 있는 DACL과 비활성화된 상속이 확인됐다. 실패 해시 `dc2a216...`는 필요한 `Content/Ingame.umap`이며, `76985ee...`와 `1a687205...`는 외부 맵의 day/night BuiltData였다. 앞선 권한 복구는 파일 단위에서 완료되지 않았으며 이번 오류의 직접 원인은 로컬 파일 접근 권한이다.
+- 2026-08-31 (Git 복구): 기존 ACL을 `.git/codex-repair/lfs-20260831-142512/empty-file-acls.json`에 백업하고 빈 ACL 파일에만 소유자 user의 FullControl을 복구했다. 빈 ACL 잔여 0개, 오류 객체 3개의 SHA-256 일치를 확인했다. 미지원 LFS 잠금 API 경고는 해당 원격의 로컬 `locksverify=false` 설정으로 비활성화했다.
+- 2026-08-31 (Git 이력): 미푸시 커밋 2개를 `35988d2`와 `5aa730b`로 재작성해 BuiltData 3개를 미푸시 이력에서 제거했다. 수정 전후 최신 tree, 실제 index 해시, 작업 상태가 같음을 검증했다. 원래 이력은 로컬 `refs/codex/backups/lfs-repair-20260831-142853`에 보존했다. 작업 중인 Blueprint와 미추적 파일은 변경하지 않았다.
+- 2026-08-31 (Git 검증): `git lfs fsck --objects main` 통과, 업로드 후보의 제외 BuiltData 0건, 필요한 Ingame 맵 포함을 확인했다. 일반 `git push origin refs/heads/main:refs/heads/main`이 LFS 1410/1410 전송과 원격 `b7c2d4b -> 5aa730b` 갱신으로 성공했다. 강제 푸시는 사용하지 않았다. Blueprint 내용 변경이 없어 UE 컴파일·PIE는 이 정비의 검증 범위에 포함하지 않았다. 다음 행동은 기존 SUBMIT-01 기능 작업 재개이며, Git 정비만으로 SUBMIT-06 전체를 완료 처리하지 않는다.
+
 ## 10. Trello 동기화
 
 - 보드: https://trello.com/b/JWrQNIlv/runner-arrow-a-row-%EB%AA%A8%EC%9E%91-2026-09-03
@@ -172,6 +180,3 @@
   - `SUBMIT-06`: 6개 중 `.uproject`, `Config`, `Content` 필수 구성 1개 완료
 - 완료 이력: 플레이어 생성, 좌우 이동, 맵 타일, 타일 풀링 4개 유지
 - 보드 제목의 기존 날짜 `2026-09-03`은 Trello 연결 기능에서 수정할 수 없어 UI 작업 대상으로 분리했다.
-
-- 2026-08-31: LFS 업로드 중 접근 거부가 발생한 Fantastic_Village_Pack의 map_village_day/night/overview와 각 BuiltData 파일을 최신 커밋 추적에서 제외했다. 9개 파일은 작업 디스크에 보존했으며 최신 커밋 포함 여부 0건을 확인했다. 원격 푸시는 수행하지 않았다.
-
