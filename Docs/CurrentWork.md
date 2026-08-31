@@ -6,7 +6,7 @@
 
 현재 상태: **제출용 필수 기능만 구현하는 최소 범위로 축소**
 
-현재 작업: **SUBMIT-01 — Normal의 빈 행(01/02)·L/R 무작위 선택과 Boss/Elite의 타입별 단일 전용 포인트 배치 설계 안내**
+현재 작업: **SUBMIT-02 — 범용 `BP_ProjectileManager`의 `InitProjectilePool`·`RequestProjectile` 구현 완료. 투사체 활성화·반환·피해 연결과 검증 진행**
 
 Git 보조 정비: **LFS 접근 거부 복구·외부 맵 BuiltData의 미푸시 이력 제외·원격 푸시 검증 완료**
 
@@ -39,6 +39,7 @@ Git 보조 정비: **LFS 접근 거부 복구·외부 맵 BuiltData의 미푸시
 - 투사체 충돌 시 피해를 적용하고 Enemy 체력이 0이면 처치 처리한다.
 - Enemy와 플레이어 충돌 시 플레이어 피해 또는 게임 종료를 처리한다.
 - 처치 보상은 선택형 보상 상자 없이 재화를 즉시 지급하는 최소 구조로 단순화한다.
+- 2026-08-31 사용자 확인 기준으로 `BP_ProjectileManager`는 Player와 Enemy가 함께 쓰는 월드 단위 풀로 구성하며, `InitProjectilePool`과 `RequestProjectile`까지 구현됐다. 남은 `ReturnProjectile`, `BP_Projectile` 활성화·비활성화, 진영별 피해 Interface, Player·Enemy 발사 연결, 컴파일·PIE는 완료 처리하지 않는다. 상세 설계는 `Docs/BlueprintSnippets/GenericProjectilePoolingSystem.md`를 따른다.
 
 ### 2.3 펫 인벤토리와 영구 스탯
 
@@ -75,15 +76,30 @@ Git 보조 정비: **LFS 접근 거부 복구·외부 맵 BuiltData의 미푸시
    - 영구 스탯 강화
    - 오프닝 화면 복귀
 
+### 2.6 강화 선택·플레이어 스탯·인게임 HUD
+
+- `ST_PlayerStats.StatusValue`는 `E_Stats → Float` Map으로 사용한다. `BP_RunnerPlayer`에는 `BaseStats`, `RunBoundStats`, `PermanentBonusStats`, `CurrentStats`가 있다.
+- 확인된 `UpdateStats` 흐름은 `StatsList`의 각 `E_Stats`에 대해 Base·런 중·영구 보너스 Map 값을 합산하고, 결과 Map을 `CurrentStats.StatusValue`에 대입한다. 저장·컴파일·PIE 검증은 아직 수행하지 않았다.
+- `RunUpgrade`는 아직 비어 있다. 선택한 `E_Stats`의 값을 `RunBoundStats.StatusValue`에 누적하고 `UpdateStats`를 호출해야 한다.
+- 표지판 두 개가 같은 프레임에 겹쳐도 한 개만 적용하도록 `BP_BaseTile.bUpgradeSelected` Guard를 타일 초기화 시 해제하고, 적용 시작 전에 먼저 설정한다. 표지판 상태 Enum은 Player Stat Map과 같은 `E_Stats`로 통일해야 한다.
+- `WBP_PlayerHealthBar`의 `UpdateHP`는 현재 HP를 그대로 0~1로 Clamp하면 0 또는 1로 표시된다. `CurrentStatus.HP / BaseStatus.HP` 비율을 Clamp하여 Progress Bar에 전달하도록 수정이 필요하다.
+- 사용자 요청 HUD 범위는 플레이어 머리 위 체력바·현재 체력, 좌측의 현재/남은 Stage, 좌측 상단 점수·재화, 우측 상단 무기 강화·펫 상태, Esc 일시정지다. Stage 표시는 3개 Stage와 각 10개 타일 통과 수를 기준으로 한다.
+
 ## 3. 제출 카드
 
 | ID | 작업 | 상태 |
 |---|---|---|
-| SUBMIT-01 | 오브젝트 풀링 기반 인게임 연결 | 진행 중 |
-| SUBMIT-02 | 충돌·전투·재화 획득 | 대기 |
+| SUBMIT-01 | 오브젝트 풀링 기반 인게임 연결 | 완료 |
+| SUBMIT-01A | 표지판 단일 선택과 `RunUpgrade` 적용 | 진행 중 |
+| SUBMIT-01B | 3×10 타일 기반 Stage 진행 상태와 이벤트 | 대기 |
+| SUBMIT-02 | 충돌·전투·재화 획득 | 진행 중 |
+| SUBMIT-02A | 플레이어 체력 상태와 월드 체력바 | 대기 |
 | SUBMIT-03 | 펫 인벤토리·영구 스탯·SaveGame | 대기 |
+| SUBMIT-03A | 영구 스탯 강화 레벨·SaveGame 적용 | 대기 |
 | SUBMIT-04 | 펫·스탯 상점 | 대기 |
 | SUBMIT-05 | 오프닝·인게임·상점 화면 흐름 | 대기 |
+| SUBMIT-05A | 인게임 HUD 정보 패널 | 대기 |
+| SUBMIT-05B | Esc 일시정지 메뉴와 입력 복구 | 대기 |
 | SUBMIT-06 | 통합·프로젝트 폴더 제출 정리 | 대기 |
 
 기존 완료 항목인 플레이어 생성, 좌우 이동, 맵 타일, 타일 풀링은 유지한다.
@@ -91,17 +107,19 @@ Git 보조 정비: **LFS 접근 거부 복구·외부 맵 BuiltData의 미푸시
 ## 4. 구현 순서
 
 1. `SUBMIT-01`: Enemy FIFO 대여·반환과 타일 재사용 연결
-2. `SUBMIT-02`: 투사체 발사, 충돌, 피해, 처치, 재화 지급
-3. `SUBMIT-03`: 펫 인벤토리, 영구 스탯, SaveGame 저장·불러오기
-4. `SUBMIT-04`: 펫 구매·강화와 영구 스탯 강화
-5. `SUBMIT-05`: 오프닝·인게임·상점 화면 이동과 버튼 연결
-6. `SUBMIT-06`: 전체 흐름 확인과 프로젝트 폴더 제출 정리
+2. `SUBMIT-01A`: 표지판 Guard, `RunUpgrade`, `UpdateStats` 재계산 연결
+3. `SUBMIT-02`: 투사체 발사, 충돌, 피해, 처치, 재화 지급
+4. `SUBMIT-02A`: 현재/최대 HP와 월드 체력바 갱신 연결
+5. `SUBMIT-03`·`SUBMIT-03A`: 펫 인벤토리, 영구 스탯, SaveGame 저장·불러오기
+6. `SUBMIT-04`: 펫 구매·강화와 영구 스탯 강화
+7. `SUBMIT-01B`·`SUBMIT-05A`·`SUBMIT-05B`: Stage 이벤트, HUD, 일시정지 연결
+8. `SUBMIT-06`: 전체 흐름 확인과 프로젝트 폴더 제출 정리
 
 병렬 구현이 가능한 UI 작업도 데이터와 SaveGame 구조가 확정된 뒤 연결한다.
 
 ## 5. 제외 범위
 
-- 3 Stage, Early/Mid/Boss Phase와 가중치 편성
+- 3 Stage, Early/Mid/Boss Phase와 가중치 편성의 게임 콘텐츠 확장. 단, 사용자가 요청한 3×10 타일 기반 HUD 표시 상태는 포함한다.
 - 다종 일반 Enemy, Elite, Boss 확장
 - 복잡한 정형 무작위 배치와 Seed 재현
 - 보상 상자 선택, 재추첨, 빌드 조합
@@ -146,6 +164,8 @@ Git 보조 정비: **LFS 접근 거부 복구·외부 맵 BuiltData의 미푸시
 - 2026-08-31: 최신 사용자 지시를 우선하여 Normal은 `Normalxx_L/R`, Boss와 Elite는 각 지정 배치점을 사용하고 동일 타입의 사용 중인 배치점만 제외하는 설계를 안내한다. Bounds 보정 후 위치 변경에 대비해 Enemy에 사용한 배치점 참조를 저장하는 방식을 제안한다. 최초 고정 순회 제안은 후속 사용자 지시에 따라 아래의 2단계 무작위 선택으로 대체한다.
 - 2026-08-31: 사용자 정정에 따라 Normal은 행(01/02)을 무작위 순서로 검사하고, L/R 중 한쪽이라도 점유된 행은 전체를 건너뛴다. 양쪽 모두 빈 행에서만 L/R을 균등 무작위 선택한다. 모든 행이 제외되면 빈 포인트가 남아 있어도 배치 실패다. 기존의 한쪽 빈자리 허용 해석은 폐기한다.
 - 2026-08-31: Normal은 두 행 중 양쪽 모두 빈 행을 무작위 선택한 뒤 L/R을 무작위 선택한다. Boss는 Boss 전용의 유일한 포인트, Elite는 별도 Elite 전용의 유일한 포인트만 사용한다. 동일 타입이 이미 점유하면 요청을 실패 처리하며 대체 포인트를 찾지 않는다. 앞서 확정한 Boss/Elite Bounds 보정은 유지한다. 배치 용량은 Normal 2개, Boss 1개, Elite 1개이며 생성 수량을 강제하지 않는다.
+- 2026-08-31: 런 중 강화와 홈 화면 영구 강화는 분리한다. 최종 스탯은 `BaseStats + PermanentBonusStats + RunBoundStats`이며 런 종료 시 `RunBoundStats`만 초기화한다.
+- 2026-08-31: HUD의 Stage 표시는 사용자 요청에 따라 3개 Stage와 각 Stage 10개 타일 통과 수를 사용한다. 이는 HUD 진행 상태이며 Stage별 Enemy·보스 콘텐츠 확장을 의미하지 않는다.
 
 ## 9. 변경 로그
 
@@ -167,16 +187,18 @@ Git 보조 정비: **LFS 접근 거부 복구·외부 맵 BuiltData의 미푸시
 - 2026-08-31 (Git 복구): 기존 ACL을 `.git/codex-repair/lfs-20260831-142512/empty-file-acls.json`에 백업하고 빈 ACL 파일에만 소유자 user의 FullControl을 복구했다. 빈 ACL 잔여 0개, 오류 객체 3개의 SHA-256 일치를 확인했다. 미지원 LFS 잠금 API 경고는 해당 원격의 로컬 `locksverify=false` 설정으로 비활성화했다.
 - 2026-08-31 (Git 이력): 미푸시 커밋 2개를 `35988d2`와 `5aa730b`로 재작성해 BuiltData 3개를 미푸시 이력에서 제거했다. 수정 전후 최신 tree, 실제 index 해시, 작업 상태가 같음을 검증했다. 원래 이력은 로컬 `refs/codex/backups/lfs-repair-20260831-142853`에 보존했다. 작업 중인 Blueprint와 미추적 파일은 변경하지 않았다.
 - 2026-08-31 (Git 검증): `git lfs fsck --objects main` 통과, 업로드 후보의 제외 BuiltData 0건, 필요한 Ingame 맵 포함을 확인했다. 일반 `git push origin refs/heads/main:refs/heads/main`이 LFS 1410/1410 전송과 원격 `b7c2d4b -> 5aa730b` 갱신으로 성공했다. 강제 푸시는 사용하지 않았다. Blueprint 내용 변경이 없어 UE 컴파일·PIE는 이 정비의 검증 범위에 포함하지 않았다. 다음 행동은 기존 SUBMIT-01 기능 작업 재개이며, Git 정비만으로 SUBMIT-06 전체를 완료 처리하지 않는다.
+- 2026-08-31: 사용자가 공유한 `BP_RunnerPlayer.UpdateStats` 그래프에서 `BaseStats`, `RunBoundStats`, `PermanentBonusStats`의 `StatusValue` Map을 `StatsList` 기준으로 합산해 `CurrentStats`에 대입하는 연결을 확인했다. `RunUpgrade` 호출, 표지판 충돌 Guard, Blueprint 컴파일과 PIE는 아직 확인하지 않았다.
+- 2026-08-31: 사용자가 공유한 `WBP_PlayerHealthBar.UpdateHP` 그래프에서 HP 값을 직접 0~1로 Clamp하는 연결을 확인했다. 현재/최대 HP 비율을 전달하도록 수정이 필요하며, 체력바 표시를 완료 처리하지 않았다.
+- 2026-08-31: Trello 원격 보드의 실제 상태를 재조회했다. 완료 목록의 `SUBMIT-01`은 유지하고, `SUBMIT-02` 및 새 `SUBMIT-01A`를 진행 중으로 기록했다. HUD·체력·영구 스탯·Stage 진행·일시정지의 누락 범위는 하위 카드로 추가했다.
+- 2026-08-31: 범용 투사체 풀링 설계를 `Docs/BlueprintSnippets/GenericProjectilePoolingSystem.md`에 기록했다. 사용자 확인 기준으로 `BP_ProjectileManager.InitProjectilePool`과 `RequestProjectile`은 구현됐으며, 풀 반환·투사체 충돌·피해 전달·발사자 연결·UE 5.7.4 컴파일과 PIE는 미검증이다.
 
 ## 10. Trello 동기화
 
 - 보드: https://trello.com/b/JWrQNIlv/runner-arrow-a-row-%EB%AA%A8%EC%9E%91-2026-09-03
 - 열린 목록: `이번 스프린트`, `진행 중`, `검증`, `완료`
-- 진행 중: `SUBMIT-01`
-- 2026-08-31: 이번 작업은 함수 설계 안내이며 실제 기능 검증 전이므로 `SUBMIT-01`의 진행 중 상태와 체크리스트 완료 수를 유지한다. Trello 원격 상태 재조회·변경은 수행하지 않았다.
-- 이번 스프린트: `SUBMIT-02`~`SUBMIT-06`
-- 체크리스트: 전체 35개 중 구현·구성 확인 5개 완료
-  - `SUBMIT-01`: 6개 중 `InitEnemyPool`, FIFO 대여, FIFO 반환, 풀 고갈 처리 4개 완료
-  - `SUBMIT-06`: 6개 중 `.uproject`, `Config`, `Content` 필수 구성 1개 완료
-- 완료 이력: 플레이어 생성, 좌우 이동, 맵 타일, 타일 풀링 4개 유지
-- 보드 제목의 기존 날짜 `2026-09-03`은 Trello 연결 기능에서 수정할 수 없어 UI 작업 대상으로 분리했다.
+- 진행 중: `SUBMIT-02`, `SUBMIT-01A`
+- 이번 스프린트: `SUBMIT-01B`, `SUBMIT-02A`, `SUBMIT-03`, `SUBMIT-03A`, `SUBMIT-04`, `SUBMIT-05`, `SUBMIT-05A`, `SUBMIT-05B`, `SUBMIT-06`
+- 완료: `SUBMIT-01`, 기존 `NEXT-01`, `DONE-01`~`DONE-03`
+- 2026-08-31: 카드 설명에 인수 조건과 확인 상태를 기록했다. 현재 보드의 제출 카드에는 체크리스트가 없으므로 과거 문서의 `35개 중 5개` 수치는 삭제한다.
+- 추가 카드: `SUBMIT-01A` 표지판 단일 선택·`RunUpgrade`, `SUBMIT-01B` 3×10 Stage 진행, `SUBMIT-02A` 체력·월드 체력바, `SUBMIT-03A` 영구 스탯·SaveGame, `SUBMIT-05A` HUD, `SUBMIT-05B` Esc 일시정지.
+- 보드 제목의 기존 날짜 `2026-09-03`은 유지한다.
