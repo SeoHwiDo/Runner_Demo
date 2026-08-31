@@ -1,12 +1,12 @@
 # Runner 현재 작업
 
-마지막 갱신: **2026-08-30 KST**
+마지막 갱신: **2026-08-31 KST**
 
 제출일: **2026-09-01 화요일(시간 미정)**
 
 현재 상태: **제출용 필수 기능만 구현하는 최소 범위로 축소**
 
-현재 작업: **SUBMIT-01 — `BP_BaseTile.RecycleCheck`와 `NextSpawnPoint`를 기준으로 `BP_TileManager` 초기 풀 생성·배치 흐름 수정**
+현재 작업: **SUBMIT-01 — Normal의 빈 행(01/02)·L/R 무작위 선택과 Boss/Elite의 타입별 단일 전용 포인트 배치 설계 안내**
 
 ## 1. 제출 목표
 
@@ -27,6 +27,7 @@
 - `InitEnemyPool`, `AcquireEnemy`, `ReturnEnemy`만 핵심 풀 API로 사용한다.
 - 타일 재사용 전에 기존 Enemy를 반환하고, 이동 후 새 Enemy를 대여·활성화한다.
 - 풀 고갈 시 추가 Spawn이나 활성 Actor 강제 회수 없이 해당 요청을 생략한다.
+- 2026-08-31 사용자 요청에 따라 `SeclectSpawnTransform`의 Type별 배치점 선택, 동일 타입 점유 위치 제외, Elite/Boss Bounds 보정 설계를 안내한다. 기존 기능의 실제 적용 상태는 미검증이며 다종 콘텐츠·Stage 확장까지 재개하지 않는다.
 - 미구현 `EnemyPlaced`, `PlaceNormalOnTile`, `PlaceBossEliteOnTile`, `AcquireEnemyByID`, `CanAcquireEnemy`, `ReturnEnemiesOwnedByTile` 확장은 구현하지 않는다.
 
 ### 2.2 충돌과 전투
@@ -140,6 +141,9 @@
 - 2026-08-29: `EnemyPlaced`와 Stage별 배치 Helper는 구현하지 않고 기존 Type 기반 Enemy FIFO를 최소 배치 흐름에 직접 연결한다.
 - 2026-08-29: `BP_TileManager`의 타일 범위 Collision은 첫 번째로 생성한 `BP_BaseTile.RecycleCheck`의 Scaled BoxExtent와 `PoolSize - 1`로 Extent를 계산한다. 변경된 Manager Box Extent를 다음 실행의 입력으로 재사용하지 않으며 Collision 위치는 유지한다.
 - 2026-08-30: `BP_TileManager` 초기 풀은 첫 타일의 `RecycleCheck.GetScaledBoxExtent`로 Manager Box를 한 번만 설정하고, 첫 위치 계산 이후 `NextSpawnPoint` 월드 위치를 다음 Spawn Transform으로 사용한다.
+- 2026-08-31: 최신 사용자 지시를 우선하여 Normal은 `Normalxx_L/R`, Boss와 Elite는 각 지정 배치점을 사용하고 동일 타입의 사용 중인 배치점만 제외하는 설계를 안내한다. Bounds 보정 후 위치 변경에 대비해 Enemy에 사용한 배치점 참조를 저장하는 방식을 제안한다. 최초 고정 순회 제안은 후속 사용자 지시에 따라 아래의 2단계 무작위 선택으로 대체한다.
+- 2026-08-31: 사용자 정정에 따라 Normal은 행(01/02)을 무작위 순서로 검사하고, L/R 중 한쪽이라도 점유된 행은 전체를 건너뛴다. 양쪽 모두 빈 행에서만 L/R을 균등 무작위 선택한다. 모든 행이 제외되면 빈 포인트가 남아 있어도 배치 실패다. 기존의 한쪽 빈자리 허용 해석은 폐기한다.
+- 2026-08-31: Normal은 두 행 중 양쪽 모두 빈 행을 무작위 선택한 뒤 L/R을 무작위 선택한다. Boss는 Boss 전용의 유일한 포인트, Elite는 별도 Elite 전용의 유일한 포인트만 사용한다. 동일 타입이 이미 점유하면 요청을 실패 처리하며 대체 포인트를 찾지 않는다. 앞서 확정한 Boss/Elite Bounds 보정은 유지한다. 배치 용량은 Normal 2개, Boss 1개, Elite 1개이며 생성 수량을 강제하지 않는다.
 
 ## 9. 변경 로그
 
@@ -149,12 +153,19 @@
 - 2026-08-29: 사용자 지시에 따라 Windows 패키징을 제외하고 UE 5.7.4 프로젝트 폴더 자체를 제출 대상으로 변경했다.
 - 2026-08-29: `Docs/BlueprintSnippets/TileManagerCollisionSizing.md`에 `PoolSize - 1`개 타일을 포함하는 Collision Extent와 Bounds 기반 타일 배치 계산 및 Blueprint 연결 순서를 기록했다. 실제 에셋 적용과 PIE 검증은 대기 상태다.
 - 2026-08-30: `Docs/BlueprintSnippets/TileManagerBeginPlayRevision.md`에 `GetTileWorldLength`·Stage 계산 제거, 첫 타일 전용 Collision 초기화와 `NextSpawnPoint` 기반 연속 배치 수정안을 기록했다. 실제 `BP_TileManager` 에셋 적용은 Computer Use 승인 대기 상태이며 컴파일과 PIE는 사용자 검증으로 남겼다.
+- 2026-08-31: `Docs/BlueprintSnippets/EnemyTypeSpawnPointSelection.md`에 첨부 함수의 실행선 미연결 상태, 후보 배열에서 동일 타입 점유 배치점 제거, Elite/Boss Bounds 보정과 풀 반환 처리를 기록했다. UE 5.7.4 설치와 로컬 Bounds API를 확인했다. 실제 Blueprint 수정·컴파일·PIE는 미수행이다. 다음 행동은 에디터의 Boss/Elite 배치점 참조와 타일 경계·회전, Enemy 최종 크기 적용 시점을 확인한 뒤 안내 흐름을 연결하고 정상·경계 경로를 검증하는 것이다.
+- 2026-08-31: Bounds 보정 수식의 중앙·양쪽 경계·피벗 차이·동일 크기·초과 크기 사례 5건을 수치 검산해 통과했다. 전체 `git diff --check`는 기존 변경 uasset의 Git LFS 임시 파일 쓰기 권한 오류로 실패하여 문서 경로로 검사를 제한했다. 사용자 에셋과 Git 설정은 변경하지 않았다.
+
+- 2026-08-31: Normal 선택 안내를 무작위 행 순회 → 한쪽이라도 점유 시 행 전체 제외 → 양쪽 모두 빈 행에서 L/R 추첨으로 정정했다. 문서 흐름에서 한쪽 점유와 모든 행 제외 시 실패 분기를 검토했다. 실제 에셋 변경·컴파일·PIE는 미수행이며 다음 행동은 이 순서를 그래프에 연결해 검증하는 것이다.
+
+- 2026-08-31: 최신 요청의 타입별 배치 규칙과 Boss/Elite 단일 포인트 분기를 설계 문서에 반영했다. 문서 흐름을 검토했으며 실제 에셋 변경·컴파일·PIE는 미수행이다. 다음 행동은 실제 전용 포인트 참조를 연결하고 빈 행·행 점유·전용 포인트 점유·Bounds 초과 경로를 검증하는 것이다.
 
 ## 10. Trello 동기화
 
 - 보드: https://trello.com/b/JWrQNIlv/runner-arrow-a-row-%EB%AA%A8%EC%9E%91-2026-09-03
 - 열린 목록: `이번 스프린트`, `진행 중`, `검증`, `완료`
 - 진행 중: `SUBMIT-01`
+- 2026-08-31: 이번 작업은 함수 설계 안내이며 실제 기능 검증 전이므로 `SUBMIT-01`의 진행 중 상태와 체크리스트 완료 수를 유지한다. Trello 원격 상태 재조회·변경은 수행하지 않았다.
 - 이번 스프린트: `SUBMIT-02`~`SUBMIT-06`
 - 체크리스트: 전체 35개 중 구현·구성 확인 5개 완료
   - `SUBMIT-01`: 6개 중 `InitEnemyPool`, FIFO 대여, FIFO 반환, 풀 고갈 처리 4개 완료
