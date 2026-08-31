@@ -4,9 +4,25 @@
 
 ## 적용 상태
 
-- `BP_ProjectileManager`의 `InitProjectilePool`과 `RequestProjectile`까지 사용자가 구현했다.
-- `ReturnProjectile`, `BP_Projectile` 활성화·반환, 진영·피해 Interface, Player·Enemy 발사 연결, 컴파일과 PIE는 이후 작업이다.
+- 현재 재개 지점은 `BP_ProjectileManager.InitProjectilePool` 구현이다. 풀 생성·초기 비활성화·Available 배열 등록 흐름을 연결 중이며, 저장·컴파일·PIE는 아직 수행하지 않았다.
+- `RequestProjectile`의 실제 구현·검증 상태는 이번 정정에서 확정하지 않는다. `InitProjectilePool`을 마친 뒤 상태를 확인하고, `BP_Projectile.ActivateProjectile`과 반환·충돌·피해·발사자 연결을 이어서 구현한다.
 - `BP_Projectile`은 사용자가 정한 `Content/Players/Projectile/BP_Projectile` 경로를 유지한다. 기능상 Player와 Enemy가 함께 쓰는 공용 Actor다.
+
+## 현재 재개 지점
+
+`BP_ProjectileManager`의 `InitProjectilePool` 함수에서 아래 흐름을 이어서 연결한다.
+
+```text
+Event BeginPlay
+→ InitProjectilePool
+→ bPoolInitialized Branch
+→ PoolSize만큼 Spawn Actor from Class
+→ InitializeProjectile(Self)
+→ AvailableProjectiles Add
+→ Set bPoolInitialized = true
+```
+
+이 함수가 끝나면 `RequestProjectile` 상태 확인 → `BP_Projectile.ActivateProjectile` → `DeactivateProjectile` → `RequestReturn` → 최대 거리 확인 → 충돌·피해 전달 → Player·Enemy 발사 연결 순서로 진행한다. 이 문서는 해당 재개 지점부터 이어서 구현하는 기준이다.
 
 ## 전체 구조
 
@@ -28,7 +44,7 @@ flowchart LR
   Enemy[Enemy] -->|발사 요청| Manager
   Manager -->|대여| Projectile[BP_Projectile]
   Projectile -->|적대 진영 충돌| Damage[ReceiveDamage]
-  Projectile -->|명중/벽/수명 종료| Manager
+  Projectile -->|명중/벽/최대 거리 도달| Manager
   Manager -->|반환| Pool[AvailableProjectiles]
 ```
 
@@ -57,7 +73,7 @@ Manager에 발사를 요청할 때 쓰는 구조체다.
 | `SpawnTransform` | Transform | 시작 위치와 발사 방향 |
 | `Damage` | Float | 이번 투사체 피해 |
 | `Speed` | Float | 이번 투사체 속도 |
-| `LifeTime` | Float | 자동 회수 시간 |
+| `MaxTravelDistance` | Float | 발사 시작 위치에서 자동 회수할 최대 거리 |
 | `ProjectileMesh` | Static Mesh Object Reference | 표시할 Mesh |
 | `MeshScale` | Vector | 투사체 크기 |
 
@@ -121,6 +137,8 @@ Player와 Enemy가 함께 사용하므로 PoolSize는 전체 동시 발사량을
 ### `InitProjectilePool`
 
 `Event BeginPlay`에서 호출한다.
+
+현재 구현 중인 함수다. 아래 초기 풀 생성 흐름을 완료한 뒤 `RequestProjectile` 상태를 확인한다.
 
 ```text
 Event BeginPlay
@@ -216,7 +234,7 @@ Is Valid(Projectile)
         → Add(AvailableProjectiles)
 ```
 
-`Contains` 확인이 있어야 충돌과 수명 종료가 같은 프레임에 발생해도 투사체가 배열에 두 번 들어가지 않는다.
+`Contains` 확인이 있어야 충돌과 최대 거리 도달이 같은 프레임에 발생해도 투사체가 배열에 두 번 들어가지 않는다.
 
 ## 4. `BP_Projectile`
 
@@ -268,9 +286,10 @@ Mesh가 화살 방향과 다르게 보이면 이동 방향을 바꾸지 말고 `
 | `PoolManager` | BP_ProjectileManager Object Reference |
 | `CurrentRequest` | ST_ProjectileRequest |
 | `bIsActive` | Boolean |
-| `LifeTimerHandle` | Timer Handle |
+| `StartLocation` | Vector |
+| `MaxTravelDistance` | Float |
 
-`Initial Life Span`은 `0`으로 둔다. 수명 종료도 Destroy가 아니라 풀 반환이다.
+`Initial Life Span`은 `0`으로 둔다. 투사체는 최대 이동 거리, 명중 또는 벽 충돌 시 Destroy하지 않고 풀에 반환한다.
 
 ### `InitializeProjectile`
 
@@ -285,31 +304,32 @@ Set PoolManager = InPoolManager
 
 입력: `Request : ST_ProjectileRequest`
 
+`InitProjectilePool`과 `RequestProjectile` 상태를 확인한 뒤 구현한다. 아래 노드를 위에서 아래 순서로 연결한 뒤 `DeactivateProjectile` 구현으로 진행한다.
+
 ```text
-Clear and Invalidate Timer by Handle(LifeTimerHandle)
-→ Set CurrentRequest = Request
-→ Set bIsActive = true
+Set CurrentRequest = Request
 → Set Actor Transform(Request.SpawnTransform)
+→ Get Actor Location
+→ Set StartLocation
+→ Set MaxTravelDistance = Request.MaxTravelDistance
 → ProjectileMesh Set Static Mesh(Request.ProjectileMesh)
 → ProjectileMesh Set Relative Scale 3D(Request.MeshScale)
-→ SphereCollision Set Collision Enabled(Query Only)
-→ Set Actor Hidden In Game(false)
 → ProjectileMovement Set Initial Speed(Request.Speed)
 → ProjectileMovement Set Max Speed(Request.Speed)
-→ ProjectileMovement Activate
 → Set Velocity in Local Space
   X: Request.Speed
-→ Set Timer by Event
-  Event: RequestReturn
-  Time: Request.LifeTime
-  Looping: false
+→ Set bIsActive = true
+→ Set Actor Hidden In Game(false)
+→ SphereCollision Set Collision Enabled(Query Only)
+→ ProjectileMovement Activate
+→ Set Actor Tick Enabled(true)
 ```
 
 ### `DeactivateProjectile`
 
 ```text
 Set bIsActive = false
-→ Clear and Invalidate Timer by Handle(LifeTimerHandle)
+→ Set Actor Tick Enabled(false)
 → ProjectileMovement Stop Movement Immediately
 → ProjectileMovement Deactivate
 → SphereCollision Set Collision Enabled(No Collision)
@@ -324,6 +344,30 @@ bIsActive
   True  → PoolManager.ReturnProjectile(Self)
   False → 종료
 ```
+
+### 최대 거리 확인
+
+`Event Tick`은 활성 투사체에서만 사용한다. `DeactivateProjectile`에서 Tick을 끄므로 비활성 풀은 매 프레임 검사하지 않는다.
+
+```text
+Event Tick
+→ bIsActive
+→ Branch
+  False → 종료
+  True
+    → Get Actor Location
+    → Vector - Vector
+      A: Actor Location
+      B: StartLocation
+    → Vector Length Squared
+    → MaxTravelDistance × MaxTravelDistance
+    → Greater than or Equal
+    → Branch
+      True  → RequestReturn
+      False → 종료
+```
+
+현재 설계는 중력 0의 직선 이동이므로 시작 위치와 현재 위치의 직선 거리로 최대 이동 거리를 판단한다. 추후 유도·곡선 이동을 추가하면 프레임별 이동 거리를 누적하는 방식으로 바꾼다.
 
 ## 5. Projectile 충돌
 
@@ -397,7 +441,7 @@ FireProjectile
   SpawnTransform: SpawnPoint Transform
   Damage: 찾은 공격력
   Speed: 화살 속도 스탯 또는 기본값
-  LifeTime: 3.0
+  MaxTravelDistance: 3000
   ProjectileMesh: 화살 Mesh
   MeshScale: (1, 1, 1)
 → ProjectileManager.RequestProjectile
@@ -424,7 +468,7 @@ EnemyFireProjectile
   SpawnTransform: 만든 Transform
   Damage: Enemy 공격력
   Speed: Enemy 투사체 속도
-  LifeTime: 3.0
+  MaxTravelDistance: 3000
   ProjectileMesh: Enemy 전용 Mesh
   MeshScale: Enemy용 크기
 → ProjectileManager.RequestProjectile
@@ -450,7 +494,7 @@ PIE에서 다음을 확인한다.
 
 - 발사 시 `AvailableProjectiles`가 하나 줄고 `ActiveProjectiles`가 하나 늘어난다.
 - Enemy 명중 시 HP가 한 번만 감소하고 투사체가 즉시 숨겨진다.
-- 수명 동안 아무것도 맞히지 않은 투사체가 자동 반환된다.
+- 최대 이동 거리에 도달한 투사체가 자동 반환된다.
 - 풀을 모두 사용했을 때 새 Actor가 Spawn되지 않고 발사만 생략된다.
 - 반환 후 같은 투사체가 정상 재사용된다.
 - Player 투사체는 Enemy만, Enemy 투사체는 Player만 피해를 준다.

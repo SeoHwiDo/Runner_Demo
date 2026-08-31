@@ -6,7 +6,7 @@
 
 현재 상태: **제출용 필수 기능만 구현하는 최소 범위로 축소**
 
-현재 작업: **SUBMIT-02 — 범용 `BP_ProjectileManager`의 `InitProjectilePool`·`RequestProjectile` 구현 완료. 투사체 활성화·반환·피해 연결과 검증 진행**
+현재 작업: **SUBMIT-02 — `BP_ProjectileManager.InitProjectilePool` 구현 중. 풀 초기화 완료 후 `RequestProjectile` 상태 확인과 투사체 활성화·반환·피해 연결 및 검증 진행**
 
 Git 보조 정비: **LFS 접근 거부 복구·외부 맵 BuiltData의 미푸시 이력 제외·원격 푸시 검증 완료**
 
@@ -39,7 +39,7 @@ Git 보조 정비: **LFS 접근 거부 복구·외부 맵 BuiltData의 미푸시
 - 투사체 충돌 시 피해를 적용하고 Enemy 체력이 0이면 처치 처리한다.
 - Enemy와 플레이어 충돌 시 플레이어 피해 또는 게임 종료를 처리한다.
 - 처치 보상은 선택형 보상 상자 없이 재화를 즉시 지급하는 최소 구조로 단순화한다.
-- 2026-08-31 사용자 확인 기준으로 `BP_ProjectileManager`는 Player와 Enemy가 함께 쓰는 월드 단위 풀로 구성하며, `InitProjectilePool`과 `RequestProjectile`까지 구현됐다. 남은 `ReturnProjectile`, `BP_Projectile` 활성화·비활성화, 진영별 피해 Interface, Player·Enemy 발사 연결, 컴파일·PIE는 완료 처리하지 않는다. 상세 설계는 `Docs/BlueprintSnippets/GenericProjectilePoolingSystem.md`를 따른다.
+- 2026-08-31 사용자 정정 기준으로 `BP_ProjectileManager`는 Player와 Enemy가 함께 쓰는 월드 단위 풀로 구성하며, 현재 재개 지점은 `InitProjectilePool`의 풀 생성·초기 비활성화·Available 배열 등록 흐름이다. 이 함수 완료 후 `RequestProjectile` 상태를 확인하고, `BP_Projectile` 활성화·반환, 최대 거리 확인, 진영별 피해 Interface, Player·Enemy 발사 연결을 구현한다. 저장·컴파일·PIE는 완료 처리하지 않는다. 상세 설계는 `Docs/BlueprintSnippets/GenericProjectilePoolingSystem.md`를 따른다.
 
 ### 2.3 펫 인벤토리와 영구 스탯
 
@@ -190,7 +190,9 @@ Git 보조 정비: **LFS 접근 거부 복구·외부 맵 BuiltData의 미푸시
 - 2026-08-31: 사용자가 공유한 `BP_RunnerPlayer.UpdateStats` 그래프에서 `BaseStats`, `RunBoundStats`, `PermanentBonusStats`의 `StatusValue` Map을 `StatsList` 기준으로 합산해 `CurrentStats`에 대입하는 연결을 확인했다. `RunUpgrade` 호출, 표지판 충돌 Guard, Blueprint 컴파일과 PIE는 아직 확인하지 않았다.
 - 2026-08-31: 사용자가 공유한 `WBP_PlayerHealthBar.UpdateHP` 그래프에서 HP 값을 직접 0~1로 Clamp하는 연결을 확인했다. 현재/최대 HP 비율을 전달하도록 수정이 필요하며, 체력바 표시를 완료 처리하지 않았다.
 - 2026-08-31: Trello 원격 보드의 실제 상태를 재조회했다. 완료 목록의 `SUBMIT-01`은 유지하고, `SUBMIT-02` 및 새 `SUBMIT-01A`를 진행 중으로 기록했다. HUD·체력·영구 스탯·Stage 진행·일시정지의 누락 범위는 하위 카드로 추가했다.
-- 2026-08-31: 범용 투사체 풀링 설계를 `Docs/BlueprintSnippets/GenericProjectilePoolingSystem.md`에 기록했다. 사용자 확인 기준으로 `BP_ProjectileManager.InitProjectilePool`과 `RequestProjectile`은 구현됐으며, 풀 반환·투사체 충돌·피해 전달·발사자 연결·UE 5.7.4 컴파일과 PIE는 미검증이다.
+- 2026-08-31: 범용 투사체 풀링 설계를 `Docs/BlueprintSnippets/GenericProjectilePoolingSystem.md`에 기록했다. 당시 기록한 `InitProjectilePool` 구현 완료 표기는 같은 날 사용자 정정으로 대체됐다. 현재 `InitProjectilePool`은 구현 중이며, `RequestProjectile`의 실제 구현·검증 상태도 재확인이 필요하다. 풀 반환·투사체 충돌·피해 전달·발사자 연결·UE 5.7.4 컴파일과 PIE는 미검증이다.
+- 2026-08-31: 투사체 자동 반환 기준을 시간에서 발사 시작 위치 기준 최대 이동 거리로 변경했다. `ST_ProjectileRequest.MaxTravelDistance`와 활성 투사체 전용 Tick 거리 비교를 사용하며, 실제 Blueprint 반영·컴파일·PIE는 미검증이다.
+- 2026-08-31: 사용자 정정에 따라 현재 구현 재개 지점을 `BP_ProjectileManager.InitProjectilePool`로 변경했다. 풀 생성·초기 비활성화·Available 배열 등록을 완료한 뒤 `RequestProjectile` 상태 확인, `BP_Projectile.ActivateProjectile`, `DeactivateProjectile`, `RequestReturn`, 최대 거리 확인, 충돌·피해 전달, Player·Enemy 발사 연결 순서로 진행한다. 실제 Blueprint 저장·컴파일·PIE는 미검증이다.
 
 ## 10. Trello 동기화
 
