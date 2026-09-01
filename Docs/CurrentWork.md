@@ -6,7 +6,7 @@
 
 현재 상태: **제출용 필수 기능만 구현하는 최소 범위로 축소**
 
-현재 작업: **SUBMIT-02 — `BP_ProjectileManager.InitProjectilePool` 구현 중. 풀 초기화 완료 후 `RequestProjectile` 상태 확인과 투사체 활성화·반환·피해 연결 및 검증 진행**
+현재 작업: **SUBMIT-02·SUBMIT-03A·SUBMIT-04·SUBMIT-05A·SUBMIT-05B — 현재 저장된 투사체·영구 성장·메인/상점 UI·인게임 HUD 변경을 기능과 의존성 단위로 Git 커밋했다. 다음 작업은 UE 5.7.4 전체 Blueprint 컴파일과 오프닝 → 인게임 → 일시정지/사망 → 메인 → 상점 흐름의 PIE 검증이다.**
 
 Git 보조 정비: **LFS 접근 거부 복구·외부 맵 BuiltData의 미푸시 이력 제외·원격 푸시 검증 완료**
 
@@ -95,11 +95,11 @@ Git 보조 정비: **LFS 접근 거부 복구·외부 맵 BuiltData의 미푸시
 | SUBMIT-02 | 충돌·전투·재화 획득 | 진행 중 |
 | SUBMIT-02A | 플레이어 체력 상태와 월드 체력바 | 대기 |
 | SUBMIT-03 | 펫 인벤토리·영구 스탯·SaveGame | 대기 |
-| SUBMIT-03A | 영구 스탯 강화 레벨·SaveGame 적용 | 대기 |
-| SUBMIT-04 | 펫·스탯 상점 | 대기 |
-| SUBMIT-05 | 오프닝·인게임·상점 화면 흐름 | 대기 |
-| SUBMIT-05A | 인게임 HUD 정보 패널 | 대기 |
-| SUBMIT-05B | Esc 일시정지 메뉴와 입력 복구 | 대기 |
+| SUBMIT-03A | 영구 스탯 강화 레벨·SaveGame 적용 | 진행 중 |
+| SUBMIT-04 | 펫·스탯 상점 | 진행 중 |
+| SUBMIT-05 | 오프닝·인게임·상점 화면 흐름 | 진행 중 |
+| SUBMIT-05A | 인게임 HUD 정보 패널 | 진행 중 |
+| SUBMIT-05B | Esc 일시정지 메뉴와 입력 복구 | 진행 중 |
 | SUBMIT-06 | 통합·프로젝트 폴더 제출 정리 | 대기 |
 
 기존 완료 항목인 플레이어 생성, 좌우 이동, 맵 타일, 타일 풀링은 유지한다.
@@ -193,6 +193,7 @@ Git 보조 정비: **LFS 접근 거부 복구·외부 맵 BuiltData의 미푸시
 - 2026-08-31: 범용 투사체 풀링 설계를 `Docs/BlueprintSnippets/GenericProjectilePoolingSystem.md`에 기록했다. 당시 기록한 `InitProjectilePool` 구현 완료 표기는 같은 날 사용자 정정으로 대체됐다. 현재 `InitProjectilePool`은 구현 중이며, `RequestProjectile`의 실제 구현·검증 상태도 재확인이 필요하다. 풀 반환·투사체 충돌·피해 전달·발사자 연결·UE 5.7.4 컴파일과 PIE는 미검증이다.
 - 2026-08-31: 투사체 자동 반환 기준을 시간에서 발사 시작 위치 기준 최대 이동 거리로 변경했다. `ST_ProjectileRequest.MaxTravelDistance`와 활성 투사체 전용 Tick 거리 비교를 사용하며, 실제 Blueprint 반영·컴파일·PIE는 미검증이다.
 - 2026-08-31: 사용자 정정에 따라 현재 구현 재개 지점을 `BP_ProjectileManager.InitProjectilePool`로 변경했다. 풀 생성·초기 비활성화·Available 배열 등록을 완료한 뒤 `RequestProjectile` 상태 확인, `BP_Projectile.ActivateProjectile`, `DeactivateProjectile`, `RequestReturn`, 최대 거리 확인, 충돌·피해 전달, Player·Enemy 발사 연결 순서로 진행한다. 실제 Blueprint 저장·컴파일·PIE는 미검증이다.
+- 2026-09-01: 작업 트리의 저장된 변경을 의존성 순서로 정리해 `6f6e9e5` 영구 성장 데이터·GameInstance, `50339f4` 화살 투사체·적 전투, `38feabb` 메인 메뉴·상점, `35c4beb` 인게임 일시정지·사망 HUD 커밋으로 분리했다. `Content/Z_Ex_Assets`는 포함하지 않았고 모든 `.uasset`·`.umap`의 staged blob이 Git LFS pointer인지 확인했다. 이번 작업은 Git 정리만 수행했으므로 UE 5.7.4 전체 Blueprint 컴파일과 PIE 정상·경계 경로 검증은 대기 상태다.
 
 ## 10. Trello 동기화
 
@@ -204,3 +205,4 @@ Git 보조 정비: **LFS 접근 거부 복구·외부 맵 BuiltData의 미푸시
 - 2026-08-31: 카드 설명에 인수 조건과 확인 상태를 기록했다. 현재 보드의 제출 카드에는 체크리스트가 없으므로 과거 문서의 `35개 중 5개` 수치는 삭제한다.
 - 추가 카드: `SUBMIT-01A` 표지판 단일 선택·`RunUpgrade`, `SUBMIT-01B` 3×10 Stage 진행, `SUBMIT-02A` 체력·월드 체력바, `SUBMIT-03A` 영구 스탯·SaveGame, `SUBMIT-05A` HUD, `SUBMIT-05B` Esc 일시정지.
 - 보드 제목의 기존 날짜 `2026-09-03`은 유지한다.
+- 2026-09-01: 이번 Git 커밋 정리에서는 원격 Trello 상태를 변경하지 않았다. UE 5.7.4 컴파일과 PIE 검증 후 관련 카드를 `검증` 또는 `완료`로 이동한다.
