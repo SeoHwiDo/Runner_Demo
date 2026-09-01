@@ -1,12 +1,12 @@
 # Runner 현재 작업
 
-마지막 갱신: **2026-08-31 KST**
+마지막 갱신: **2026-09-01 KST**
 
 제출일: **2026-09-01 화요일(시간 미정)**
 
 현재 상태: **제출용 필수 기능만 구현하는 최소 범위로 축소**
 
-현재 작업: **SUBMIT-02·SUBMIT-03A·SUBMIT-04·SUBMIT-05A·SUBMIT-05B — 현재 저장된 투사체·영구 성장·메인/상점 UI·인게임 HUD 변경을 기능과 의존성 단위로 Git 커밋했다. 다음 작업은 UE 5.7.4 전체 Blueprint 컴파일과 오프닝 → 인게임 → 일시정지/사망 → 메인 → 상점 흐름의 PIE 검증이다.**
+현재 작업: **SUBMIT-03A·SUBMIT-05A — 인게임 HUD의 골 지점 ProgressBar·현재 Stat 표시와 `GameInstance.PermanentBonusStats` 연결 방법을 문서화했다. 다음 작업은 해당 Blueprint 연결을 적용하고 UE 5.7.4에서 컴파일·PIE 검증하는 것이다.**
 
 Git 보조 정비: **LFS 접근 거부 복구·외부 맵 BuiltData의 미푸시 이력 제외·원격 푸시 검증 완료**
 
@@ -84,6 +84,7 @@ Git 보조 정비: **LFS 접근 거부 복구·외부 맵 BuiltData의 미푸시
 - 표지판 두 개가 같은 프레임에 겹쳐도 한 개만 적용하도록 `BP_BaseTile.bUpgradeSelected` Guard를 타일 초기화 시 해제하고, 적용 시작 전에 먼저 설정한다. 표지판 상태 Enum은 Player Stat Map과 같은 `E_Stats`로 통일해야 한다.
 - `WBP_PlayerHealthBar`의 `UpdateHP`는 현재 HP를 그대로 0~1로 Clamp하면 0 또는 1로 표시된다. `CurrentStatus.HP / BaseStatus.HP` 비율을 Clamp하여 Progress Bar에 전달하도록 수정이 필요하다.
 - 사용자 요청 HUD 범위는 플레이어 머리 위 체력바·현재 체력, 좌측의 현재/남은 Stage, 좌측 상단 점수·재화, 우측 상단 무기 강화·펫 상태, Esc 일시정지다. Stage 표시는 3개 Stage와 각 10개 타일 통과 수를 기준으로 한다.
+- 골 지점 ProgressBar·현재 Stat Row 구성과 `BP_RunnerGameInstance.PermanentBonusStats` 연결 문제의 수정 순서는 `Docs/BlueprintSnippets/IngameHUDProgressAndPermanentStats.md`를 따른다.
 
 ## 3. 제출 카드
 
@@ -194,6 +195,7 @@ Git 보조 정비: **LFS 접근 거부 복구·외부 맵 BuiltData의 미푸시
 - 2026-08-31: 투사체 자동 반환 기준을 시간에서 발사 시작 위치 기준 최대 이동 거리로 변경했다. `ST_ProjectileRequest.MaxTravelDistance`와 활성 투사체 전용 Tick 거리 비교를 사용하며, 실제 Blueprint 반영·컴파일·PIE는 미검증이다.
 - 2026-08-31: 사용자 정정에 따라 현재 구현 재개 지점을 `BP_ProjectileManager.InitProjectilePool`로 변경했다. 풀 생성·초기 비활성화·Available 배열 등록을 완료한 뒤 `RequestProjectile` 상태 확인, `BP_Projectile.ActivateProjectile`, `DeactivateProjectile`, `RequestReturn`, 최대 거리 확인, 충돌·피해 전달, Player·Enemy 발사 연결 순서로 진행한다. 실제 Blueprint 저장·컴파일·PIE는 미검증이다.
 - 2026-09-01: 작업 트리의 저장된 변경을 의존성 순서로 정리해 `6f6e9e5` 영구 성장 데이터·GameInstance, `50339f4` 화살 투사체·적 전투, `38feabb` 메인 메뉴·상점, `35c4beb` 인게임 일시정지·사망 HUD, `04663cf` HUD 스탯 행 위젯 커밋으로 분리했다. `Content/Z_Ex_Assets`는 포함하지 않았고 모든 `.uasset`·`.umap`의 staged blob이 Git LFS pointer인지 확인했다. 이번 작업은 Git 정리만 수행했으므로 UE 5.7.4 전체 Blueprint 컴파일과 PIE 정상·경계 경로 검증은 대기 상태다.
+- 2026-09-01: 앞서 안내한 인게임 HUD 골 지점 ProgressBar·현재 Stat 표시 방법과 `GameInstance.PermanentBonusStats`를 가져오지 못하는 문제의 원인·수정 연결을 `Docs/BlueprintSnippets/IngameHUDProgressAndPermanentStats.md`로 옮겼다. 문서 작성만 수행했으며 Blueprint 적용·컴파일·PIE는 대기 상태다.
 
 ## 10. Trello 동기화
 
