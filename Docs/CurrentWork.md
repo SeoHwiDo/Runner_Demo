@@ -193,7 +193,7 @@ Git 보조 정비: **LFS 접근 거부 복구·외부 맵 BuiltData의 미푸시
 - 2026-08-31: 범용 투사체 풀링 설계를 `Docs/BlueprintSnippets/GenericProjectilePoolingSystem.md`에 기록했다. 당시 기록한 `InitProjectilePool` 구현 완료 표기는 같은 날 사용자 정정으로 대체됐다. 현재 `InitProjectilePool`은 구현 중이며, `RequestProjectile`의 실제 구현·검증 상태도 재확인이 필요하다. 풀 반환·투사체 충돌·피해 전달·발사자 연결·UE 5.7.4 컴파일과 PIE는 미검증이다.
 - 2026-08-31: 투사체 자동 반환 기준을 시간에서 발사 시작 위치 기준 최대 이동 거리로 변경했다. `ST_ProjectileRequest.MaxTravelDistance`와 활성 투사체 전용 Tick 거리 비교를 사용하며, 실제 Blueprint 반영·컴파일·PIE는 미검증이다.
 - 2026-08-31: 사용자 정정에 따라 현재 구현 재개 지점을 `BP_ProjectileManager.InitProjectilePool`로 변경했다. 풀 생성·초기 비활성화·Available 배열 등록을 완료한 뒤 `RequestProjectile` 상태 확인, `BP_Projectile.ActivateProjectile`, `DeactivateProjectile`, `RequestReturn`, 최대 거리 확인, 충돌·피해 전달, Player·Enemy 발사 연결 순서로 진행한다. 실제 Blueprint 저장·컴파일·PIE는 미검증이다.
-- 2026-09-01: 작업 트리의 저장된 변경을 의존성 순서로 정리해 `6f6e9e5` 영구 성장 데이터·GameInstance, `50339f4` 화살 투사체·적 전투, `38feabb` 메인 메뉴·상점, `35c4beb` 인게임 일시정지·사망 HUD 커밋으로 분리했다. `Content/Z_Ex_Assets`는 포함하지 않았고 모든 `.uasset`·`.umap`의 staged blob이 Git LFS pointer인지 확인했다. 이번 작업은 Git 정리만 수행했으므로 UE 5.7.4 전체 Blueprint 컴파일과 PIE 정상·경계 경로 검증은 대기 상태다.
+- 2026-09-01: 작업 트리의 저장된 변경을 의존성 순서로 정리해 `6f6e9e5` 영구 성장 데이터·GameInstance, `50339f4` 화살 투사체·적 전투, `38feabb` 메인 메뉴·상점, `35c4beb` 인게임 일시정지·사망 HUD, `04663cf` HUD 스탯 행 위젯 커밋으로 분리했다. `Content/Z_Ex_Assets`는 포함하지 않았고 모든 `.uasset`·`.umap`의 staged blob이 Git LFS pointer인지 확인했다. 이번 작업은 Git 정리만 수행했으므로 UE 5.7.4 전체 Blueprint 컴파일과 PIE 정상·경계 경로 검증은 대기 상태다.
 
 ## 10. Trello 동기화
 
