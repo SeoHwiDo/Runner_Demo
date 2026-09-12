@@ -67,3 +67,8 @@ Desktop.ini
 /Content/Collections/
 /Content/Developers/
 
+# 패키지 빌드 산출물 제외 (플레이 빌드는 GitHub Releases에 zip으로 배포)
+# 실수로 브랜치에 커밋되는 것을 방지한다.
+/Windows/
+/StagedBuilds/
+

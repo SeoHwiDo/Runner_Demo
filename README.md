@@ -35,7 +35,14 @@ Unreal Engine 5.7.4, Blueprint-only, Windows 64-bit 싱글 플레이 러너이�
 3. `Runner_Demo.uproject`를 우클릭해 `Generate Visual Studio project files` 없이 바로 에디터로 연다.
 4. `Main.umap` 또는 `Ingame.umap`을 열어 PIE로 실행한다.
 
-패키지 빌드는 제출 범위에서 제외됐다. 플레이 영상과 빌드는 `GitHub Releases`에 별도로 올린다.
+## 플레이 빌드 (에디터 없이 실행)
+
+- 다운로드: `GitHub Releases`의 `Runner_Demo-Windows-Portfolio.zip`
+  (업로드 후 이 줄에 릴리스 URL을 기입한다)
+- 압축 해제 후 `Runner_Demo.exe`를 실행한다.
+- 실행이 안 되면 `Engine/Extras/Redist/en-us/vc_redist.x64.exe`를 먼저 설치한다.
+- 이 빌드는 Fab 에셋이 조리된 형태로 포함된 프로젝트 배포이므로
+  Fab EULA상 공개 배포가 허용된다. 원본 에셋은 포함되지 않는다.
 
 ## 외부 에셋 고지 (중요)
 
