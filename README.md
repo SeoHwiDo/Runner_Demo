@@ -11,6 +11,10 @@ Unreal Engine 5.7.4, Blueprint-only, Windows 64-bit 싱글 플레이 러너이�
 - 오프닝: 게임 시작, 상점 이동, Save, Load
 - 상점: 펫 구매·강화, 영구 스탯 강화
 
+## 시연 영상
+
+- https://youtu.be/HeW1g0u7sFc
+
 ## 소스코드 안내
 
 이 프로젝트는 C++ 없이 Blueprint로만 작성됐다. 소스코드는 아래 `.uasset`, `.umap`이다.
