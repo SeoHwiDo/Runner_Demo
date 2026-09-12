@@ -71,4 +71,5 @@ Desktop.ini
 # 실수로 브랜치에 커밋되는 것을 방지한다.
 /Windows/
 /StagedBuilds/
+/Runner_Demo-Windows-Portfolio.zip
 
