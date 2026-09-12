@@ -196,6 +196,7 @@ Git 보조 정비: **LFS 접근 거부 복구·외부 맵 BuiltData의 미푸시
 - 2026-08-31: 사용자 정정에 따라 현재 구현 재개 지점을 `BP_ProjectileManager.InitProjectilePool`로 변경했다. 풀 생성·초기 비활성화·Available 배열 등록을 완료한 뒤 `RequestProjectile` 상태 확인, `BP_Projectile.ActivateProjectile`, `DeactivateProjectile`, `RequestReturn`, 최대 거리 확인, 충돌·피해 전달, Player·Enemy 발사 연결 순서로 진행한다. 실제 Blueprint 저장·컴파일·PIE는 미검증이다.
 - 2026-09-01: 작업 트리의 저장된 변경을 의존성 순서로 정리해 `6f6e9e5` 영구 성장 데이터·GameInstance, `50339f4` 화살 투사체·적 전투, `38feabb` 메인 메뉴·상점, `35c4beb` 인게임 일시정지·사망 HUD, `04663cf` HUD 스탯 행 위젯 커밋으로 분리했다. `Content/Z_Ex_Assets`는 포함하지 않았고 모든 `.uasset`·`.umap`의 staged blob이 Git LFS pointer인지 확인했다. 이번 작업은 Git 정리만 수행했으므로 UE 5.7.4 전체 Blueprint 컴파일과 PIE 정상·경계 경로 검증은 대기 상태다.
 - 2026-09-01: 앞서 안내한 인게임 HUD 골 지점 ProgressBar·현재 Stat 표시 방법과 `GameInstance.PermanentBonusStats`를 가져오지 못하는 문제의 원인·수정 연결을 `Docs/BlueprintSnippets/IngameHUDProgressAndPermanentStats.md`로 옮겼다. 문서 작성만 수행했으며 Blueprint 적용·컴파일·PIE는 대기 상태다.
+- 2026-09-12: Public 포트폴리오용 `public-portfolio` 브랜치를 만들고 Fab 외부 에셋(`Content/Z_Ex_Assets` 전체 212개, 캐릭터 포함)을 팁에서 추적 제외한 뒤 전 이력 필터링으로 제거했다. 커밋 메시지와 날짜는 유지하고 해시만 변경됐다. `main`과 백업 bundle은 원본 그대로 보존했다. Blueprint 적용·컴파일·PIE는 이 작업 범위에 포함하지 않았다.
 
 ## 10. Trello 동기화
 

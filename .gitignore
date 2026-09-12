@@ -61,3 +61,9 @@ Desktop.ini
 /Config/SteamVRBindings/
 /Platforms/HoloLens/Config/HoloLensEngine.ini
 
+# Public 포트폴리오용 외부 에셋 제외 (Fab Standard License 재배포 금지 대응)
+# Private 원본에서는 추적 중이지만, Public GitHub에는 포함하지 않는다.
+/Content/Z_Ex_Assets/
+/Content/Collections/
+/Content/Developers/
+
